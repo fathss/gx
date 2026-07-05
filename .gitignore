@@ -1,0 +1,21 @@
+# build artifacts
+/src/gx
+/src/gx.exe
+
+# gx config
+.gx/
+
+# go
+/src/vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+
+# editor/OS cruft
+.DS_Store
+.idea/
+.vscode/
