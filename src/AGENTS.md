@@ -1,55 +1,56 @@
 # gx — AGENTS.md
 
-Compact, high-signal facts for an agent working on this repo.
+Compact, high-signal instructions for agents working on this repo.
 
 ## Project
 
-Opinionated Git CLI wrapping common workflows into single commands. Go module `github.com/fathss/gx`.
+Opinionated Git CLI for combining common multi-step Git workflows into single, safe commands. Go module: `github.com/fathss/gx`.
 
-### Design boundary
+## Design boundary
 
-gx is NOT a git wrapper. It does not aim to replace `git ` as the universal entrypoint.
-gx's job is to combine multiple git commands into single safe, opinionated workflows
-(`gx sync`, `gx save`, `gx ship`, etc.). When you need raw git — for edge cases,
-manual operations, or anything gx doesn't own — use `git ` directly.
+`gx` is not a general-purpose Git wrapper. Its job is to combine multiple Git operations into safe, opinionated workflows such as `gx sync`, `gx save`, and `gx ship`.
 
-This means:
+Use `git` directly for operations that gx does not own.
 
-- No catch-all pass-through (`gx pull` will never work)
-- No `gx git` subcommand
-- `gx rebase`, `gx merge`, `gx stash` wrappers are not planned
-- Hints tell users to use `git <cmd>` when gx can't handle the operation
+Do not add:
 
-**Dependencies**: `spf13/cobra` (CLI). Test framework: bash scripts (`tests/lib.sh`).
+- catch-all/pass-through commands such as `gx pull`
+- a `gx git` subcommand
+- thin wrappers for `rebase`, `merge`, `stash`, etc.
+- gx commands whose only purpose is exposing a single raw Git command
 
-## Build
+When gx cannot handle an operation, user-facing hints should direct the user to `git <cmd>`.
 
-```bash
-go build -o gx .
-go vet ./...
+Dependencies: `spf13/cobra` (CLI).
+
+Tests: Bash scripts under `tests/`.
+
+---
+
+## Architecture
+
+The code follows a strict layered architecture:
+
+```
+cmd/ → internal/workflow/ → internal/git/ → internal/runner/
 ```
 
-## Strict layered architecture
+Layer violations are bugs.
 
-```
-cmd/  →  internal/workflow/  →  internal/git/  →  internal/runner/
-```
+| Layer | Must | Must NOT |
+|---|---|---|
+| `cmd/` | cobra definitions, flags, config loading, invoke workflows | execute Git directly, contain workflow logic |
+| `internal/workflow/` | orchestrate Git functions, convert errors to `cli.Error` | call `exec.Command`, depend on cobra internals |
+| `internal/git/` | one function per Git operation, thin wrappers over runner | print messages, know workflows, create `cli.Error` |
+| `internal/runner/` | execute Git, logging, stdio plumbing | understand Git semantics or workflow logic |
+| `internal/config/` | load `.gx/config`, provide defaults | — |
+| `internal/cli/` | define `Error{Message, Hint}` | print errors |
 
-**Layer rules** (violations are bugs):
+## Error handling
 
-| Layer                | Must                                                     | Must NOT                                          |
-| -------------------- | -------------------------------------------------------- | ------------------------------------------------- |
-| `cmd/`               | cobra defs, flags, config loading, invoke workflow       | execute git directly, contain workflow logic      |
-| `internal/workflow/` | orchestrate git funcs, convert all errors to `cli.Error` | call `exec.Command`, know cobra internals         |
-| `git/`               | one func per git op, thin wrappers over runner           | print messages, know workflow, create `cli.Error` |
-| `runner/`            | exec git, verbose logging, pipe stdio                    | understand git, implement logic                   |
-| `config/`            | load `.gx/config`, provide defaults                      | —                                                 |
-| `cli/`               | `Error{Message, Hint}` type                              | —                                                 |
+Only `main.go` prints errors. No other package should print a `cli.Error` or user-facing error.
 
-**Only `main.go` prints errors.** No other package.
-
-**Error pattern** (workflow only):
-Hint supports `\n` — main.go splits into separate lowercase `hint:` lines (git-style).
+Workflow errors should use:
 
 ```go
 if err := git.SomeOp(...); err != nil {
@@ -60,62 +61,102 @@ if err := git.SomeOp(...); err != nil {
 }
 ```
 
-**cli.Error output visibility**: Only `Message` and `Hint` are printed to stderr.
-**cli.Error.Error()**: Required for `error` interface compliance. Return value (`e.Message`) is never consumed — `main.go` reads `Message` directly via `errors.As`.
+`cli.Error` has `Message` and `Hint`.
 
-## Currently implemented (code)
+Only `Message` and `Hint` are shown to users. `Hint` may contain `\n`; `main.go` renders each hint line as a separate lowercase `hint:` line.
 
-`gx sync`, `gx save`, `gx ship`, `gx status`, `gx init`, and `gx config` are fully implemented.
-Other commands (`resolve`, `start`, `tag`, `undo`, `pr`, `clean`, `log`, `stash`) are planned but not yet implemented.
+`cli.Error.Error()` only exists to satisfy Go's `error` interface. `main.go` extracts the concrete error with `errors.As` and reads `Message` directly.
+
+---
 
 ## Safety contract
 
-Every `gx` command that mutates the repo follows this order:
+Every gx command that mutates the repository follows:
 
-1. **check** — validate preconditions (clean state, right branch, semver format, etc.)
-2. **warn** — surface anything unusual before acting (sensitive files, force-push, not on base branch)
-3. **act** — execute git operations
-4. **recover** — on any failure, undo partial state and exit with a clear message
+**check → warn → act → recover**
 
-No command leaves the repo in a silent broken state.
+1. **check** — validate preconditions such as clean state, branch, config, or semver format.
+2. **warn** — surface unusual or potentially destructive conditions before acting.
+3. **act** — perform the Git operations.
+4. **recover** — undo partial state after failure and report what the user should do next.
 
-## Central pre-flight guard
+A command must not silently leave the repository in a broken or ambiguous state.
 
-`cmd/root.go` `PersistentPreRunE` validates repo + config before every command:
+---
 
-| Annotation  | Behavior                      |
-| ----------- | ----------------------------- |
-| `no_repo`   | Skip repo check               |
-| `no_config` | Skip config check             |
-| (none)      | Requires both repo AND config |
+## Pre-flight guard
 
-**Adding annotations** — new commands set them in the cobra `Annotations` map:
+`cmd/root.go` uses `PersistentPreRunE` to validate repository and config state before commands execute.
+
+Commands normally require both:
+
+- a Git repository
+- `.gx/config`
+
+Annotations can bypass either check:
+
+| Annotation | Effect |
+|---|---|
+| `no_repo` | skip repository check |
+| `no_config` | skip config check |
+| none | require both |
+
+New commands should declare annotations in their cobra command when necessary:
 
 ```go
-Annotations: map[string]string{"no_config": ""}
+Annotations: map[string]string{"no_config": ""},
 ```
 
-**Built-in commands** (`help`, `completion`) are annotated dynamically in `sync.Once` inside `PersistentPreRunE`. Annotates recursively via `annotateSubtree` — annotating only the parent misses leaf commands like `completion bash`.
+Built-in `help` and `completion` commands are annotated dynamically in `PersistentPreRunE`. Annotation must recurse into leaf commands such as `completion bash`; annotating only the parent command is insufficient.
 
-## Adding a new command
+---
 
-Per architecture docs — `gx foo` requires exactly:
+## Adding a command
+
+A normal new command requires exactly:
 
 ```
-cmd/foo.go           # cobra command, loads config, calls workflow
-workflow/foo.go      # orchestrates git ops, creates cli.Error
+cmd/foo.go
+internal/workflow/foo.go
 docs/commands/foo.md
 ```
 
-Only add `internal/git/xxx.go` + `docs/domains/xxx.md` when introducing a brand-new Git capability.
+The command layer should define cobra behavior and invoke the workflow. Workflow code owns orchestration and user-facing errors.
 
-**Exception — `gx config`** reads/writes `.gx/config` directly via the `config` package with no workflow or git layer. Only command that bypasses the normal architecture.
+Only add `internal/git/*.go` and `docs/domains/*.md` when the command introduces a genuinely new Git capability.
 
-## Config (`.gx/config`)
+### Exception: `gx config`
 
-`gx init` seeds `sensitivePatterns` with `config.DefaultSensitivePatterns`
-(`.env`, `*.pem`, `*secret*`, `*.key`) — the config file is the single source
-of truth. `MatchSensitivePatterns` does NOT concatenate any hardcoded defaults.
+`gx config` intentionally bypasses the normal workflow/Git layers. It reads and writes `.gx/config` directly through the config package.
+
+This is the only intentional architecture exception.
+
+---
+
+## Config
+
+`.gx/config` is the source of truth for gx configuration.
+
+Default configuration is provided by the config package, but behavior that depends on persisted configuration must not silently introduce a second set of hardcoded defaults.
+
+In particular:
+
+- `gx init` seeds `sensitivePatterns` from `config.DefaultSensitivePatterns`.
+- `MatchSensitivePatterns` must use the configured patterns and must not concatenate hidden hardcoded defaults.
+- Missing `.gx/config` causes the normal pre-flight guard to require `gx init`.
+- `gx init` and `gx config` bypass the config requirement via `no_config`.
+- `config.Load()` can fall back to defaults when the file is absent; this path is intentionally used by `gx init` and `gx config`.
+- Empty config fields fall back to defaults.
+
+Current keys:
+
+- `remote`
+- `defaultBranch`
+- `syncStrategy`
+- `sensitivePatterns`
+- `protectedBranches`
+
+Example:
 
 ```json
 {
@@ -126,233 +167,280 @@ of truth. `MatchSensitivePatterns` does NOT concatenate any hardcoded defaults.
 }
 ```
 
-Missing file = `RequireConfig()` guard blocks most commands with "run gx init". The `config` package (`Load()`) falls back to defaults when the file is missing — only `gx config` and `gx init` use this path (both annotated `no_config`). Empty fields in file = fall back to defaults.
+`sensitivePatterns` and `protectedBranches` accept multiple positional values through `gx config`. Other keys accept at most one value.
 
-**`gx config` uses `ArbitraryArgs` for `sensitivePatterns` and `protectedBranches`** — variadic positional
-patterns (e.g. `gx config sensitivePatterns .env .gitignore`, `gx config protectedBranches main release`). Other keys enforce max 1 value.
+`gx config list` is a positional subcommand, not a `--list` flag.
 
-## Runner methods
+---
 
-```go
-run.Run(args...) error              // prints "▸ git <args>" header, streams git's stdout/stderr to terminal
-run.RunWithEnv(env, args...) error  // same as Run but with extra env vars, always prints header
-run.Output(args...) (string, error)     // captures stdout, trims whitespace
-run.CombinedOutput(args...) (string, error)  // captures both, trims whitespace
-```
+## Git invariants
 
-`--verbose` / `-v` flag prints the plumbing commands (`Output()`/`CombinedOutput()`) that are hidden by default. The `▸ git <args>` headers from `Run()` are always-on.
+These are cross-cutting rules that are easy to violate and expensive to debug.
 
-## Git domain patterns
+### gx-owned stashes
 
-See `docs/domains/*.md` for per-file function reference. Key conventions:
-
-- Stash ops match by label prefix (`gx-sync/`), never `stash@{0}` — user stash ops shift the stack.
-- Rebase/merge detection uses `os.Stat` on `.git/rebase-merge`/`.git/MERGE_HEAD`, not `git rev-parse --show-current-patch` (false negatives).
-
-## Sync state machine
+gx-owned sync stashes are identified by their message prefix:
 
 ```
-Q3: rebaseInProgress + !hasGXStash → manual rebase → block (use git directly)
-Q4: rebaseInProgress + hasGXStash  → gx-orchestrated → --continue/--skip/--abort
-Q5: mergeInProgress  + !hasGXStash → manual merge → block (use git directly)
-Q6: mergeInProgress  + hasGXStash  → gx-orchestrated → --continue/--abort
+gx-sync/
 ```
 
-The gx stash presence is the signal. Manual pauses (no gx stash) block with a hint — use git commands directly.
+Never assume `stash@{0}` is the gx stash. User stash operations can reorder the stash stack.
+
+### Rebase/merge detection
+
+Detect repository rebase/merge state from Git's state files, such as:
+
+```
+.git/rebase-merge
+.git/rebase-apply
+.git/MERGE_HEAD
+```
+
+Do not use `git rev-parse --show-current-patch` as the sole indication that a rebase is in progress; it can produce false negatives during paused rebases.
+
+### Manual vs gx-orchestrated operations
+
+A manually started rebase or merge must not be mistaken for one initiated by gx.
+
+The presence of a gx-owned stash is the signal used by sync to distinguish gx-orchestrated state from manual Git state.
+
+See `docs/domains/sync.md` for the complete sync state machine.
+
+---
 
 ## Output philosophy
 
-`Run()` always prints `▸ git <args>` to visually group each git command's output. Gx's own `fmt.Print` messages are limited to things git doesn't already say: stash context, continue signals, conflict summaries with recovery hints. No "Done." footer, no "Fetching origin..." announcement (git's own output covers that).
+Git should explain Git operations.
+
+`run.Run()` always prints a:
+
+```
+▸ git <args>
+```
+
+header before streaming Git's output.
+
+gx should only print information that Git does not already communicate, such as:
+
+- gx stash context
+- continuation signals
+- conflict summaries
+- recovery instructions
+
+Do not add redundant messages such as:
+
+```
+Done.
+Fetching origin...
+```
+
+when Git already provides equivalent output.
+
+Detailed runner behavior is documented with the runner implementation.
+
+---
 
 ## Testing
 
-Shared test library at `tests/lib.sh` with helpers for setup, assertions, and running gx.
-One command-specific file per command:
+Tests are Bash-based and share helpers through:
 
 ```
-tests/lib.sh              # shared helpers (setup_tempdir, run_gx, assertions, ..)
-tests/gx-sync-test.sh     # sources lib.sh
-tests/gx-save-test.sh     # sources lib.sh
-tests/gx-ship-test.sh     # ...
+tests/lib.sh
+```
+
+There is normally one suite per command:
+
+```
+tests/gx-sync-test.sh
+tests/gx-save-test.sh
+tests/gx-ship-test.sh
 ...
 ```
 
-Run a test with:
+Run one suite:
 
 ```bash
 bash tests/gx-COMMAND-test.sh
 ```
 
-Pattern — source `lib.sh`, run gx, assert on state:
+Run everything:
 
 ```bash
-run_gx
-assert_exit_code "exits 0" 0
-assert_output_contains "progress message" "rebase"
+bash tests/run-all.sh
 ```
 
-See `tests/gx-sync-test.sh` for a full example.
+`run-all.sh` discovers test suites using the:
 
-Bottom "RUN ALL" section wraps each test with `run_test()` (test-level tracking + markers):
-
-```bash
-run_test test_01_success_feature "Test 01: success — feature branch"
-run_test test_02_outside_repo "Test 02: outside repo"
-...
-print_test_summary
-[ "$TEST_FAIL" -eq 0 ]
+```
+tests/*-test.sh
 ```
 
-Shared test library at `tests/lib.sh` (setup, assertions, running gx) —
-see the file directly for the full helper list; it's the source of truth
-and will drift from any copy kept here. Two non-obvious things:
+glob, so new test files do not need to be registered manually.
 
-- `run_test()` wraps each test in a **subshell** — plain `$FAIL`/`$PASS`
-  counters won't propagate. Use `$TEST_FAIL`/`$TEST_PASS` for exit decisions.
-- `run_gx` provides no stdin — interactive-prompt tests need a separate
-  helper that pipes input.
+### Test assertions
 
-**Assertion rule**: `assert_output_contains(keyword)` — assert the minimum unique
-substring that proves the assertion (e.g. `"conflicts"`, `"Git repository"`,
-`"Merge stopped"`). Never assert a full error message or sentence. Always pair
-with `assert_exit_code` so every test has two independent signals: process
-outcome + output content.
+Tests should assert both:
 
-**Run all suites**:
+1. process outcome with `assert_exit_code`
+2. relevant output/state with an assertion such as `assert_output_contains`
 
-```bash
-bash tests/run-all.sh   # builds gx once, runs every *-test.sh
+Output assertions should use the minimum unique substring that proves the behavior. Do not assert complete sentences or full error messages.
+
+**Good:**
+
+- `"conflicts"`
+- `"Git repository"`
+- `"syncStrategy"`
+- `"Merge stopped"`
+
+**Bad:**
+
+- `"Merge stopped because conflicts were detected in the repository."`
+
+This keeps tests resilient to wording improvements.
+
+### Test implementation details
+
+Test setup, `run_test()` behavior, stdin handling, `PIPESTATUS`, test counters, and other Bash-specific conventions live in:
+
+```
+tests/AGENTS.md
 ```
 
-`run-all.sh` uses `tests/*-test.sh` glob — new test files are auto-discovered without editing `run-all.sh`.
+Read that file when modifying or adding tests.
 
-**Run-all failure reporting**: `run_all.sh` captures each suite's output via `tee`, parses `##TEST_FAIL:<label>` markers, and prints which individual tests failed per suite. New test scripts automatically get this reporting if they use `run_test()` wrappers.
+---
 
-**Guard test gotcha**: Tests for outside-repo and inside-repo states have conflicting setup constraints. Each test does `cleanup_tempdir; setup_tempdir` independently — no shared trap can span both states.
+## Documentation maintenance
 
-## Agent skills
+When changing a command, cross-check the relevant layers:
+
+```
+cmd/<cmd>.go
+internal/workflow/<cmd>.go
+internal/git/*.go
+docs/commands/<cmd>.md
+docs/domains/*.md
+```
+
+The implementation is the source of truth for behavior.
+
+When adding or modifying a Git function, check the corresponding domain documentation for missing or stale entries.
+
+When changing command behavior, update the command documentation.
+
+Do not allow documentation to describe planned behavior as implemented or implemented behavior as planned.
+
+---
+
+## Current implementation status
+
+**Currently implemented:**
+
+- `gx sync`
+- `gx save`
+- `gx ship`
+- `gx status`
+- `gx init`
+- `gx config`
+
+**Planned but not yet implemented:**
+
+- `resolve`
+- `start`
+- `tag`
+- `undo`
+- `pr`
+- `clean`
+- `log`
+- `stash`
+
+Update this section whenever a planned command becomes implemented.
+
+---
+
+## Agent workflow
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/<feature>/`. See `.agents/docs/issue-tracker.md`.
+Issues are local Markdown files under:
+
+```
+.scratch/<feature>/
+```
+
+See:
+
+```
+.agents/docs/issue-tracker.md
+```
 
 ### Triage labels
 
-Five canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `.agents/docs/triage-labels.md`.
+The canonical labels are:
 
-## Common agent mistakes (Keep this as the last section)
+- `needs-triage`
+- `needs-info`
+- `ready-for-agent`
+- `ready-for-human`
+- `wontfix`
 
-Running list of traps agents commonly hit in this repo that aren't obvious from
-the surrounding docs. Append new entries as they're discovered.
+See:
 
-### Assertions & output
+```
+.agents/docs/triage-labels.md
+```
 
-- `assert_output_not_contains` keywords that are too short —
-  `"Merge"` matched irrelevant git output; `"Merge stopped"` was the minimum
-  unique substring. Always verify a not-contains keyword doesn't appear
-  elsewhere in the output.
+---
 
-- `assert_output_contains` full sentences instead of keywords —
-  Wording changes to error messages break the test even when behavior is
-  correct. Prefer the key noun, config key, or value (e.g. `"nonexistent"`,
-  `"syncStrategy"`, `"conflicts"`).
+## Before finishing a change
 
-### Git operations
+For a code change:
 
-- `MergeContinue()` must use `GIT_EDITOR=true git merge --continue` —
-  `--no-edit` is invalid with `--continue`. The `--no-edit` flag is silently
-  rejected, causing a hard error.
+- preserve the layer boundaries
+- keep Git operations in `internal/git`
+- keep orchestration in `internal/workflow`
+- keep cobra concerns in `cmd`
+- return `cli.Error` from workflows for user-facing failures
+- ensure only `main.go` prints errors
+- preserve the check → warn → act → recover safety model for mutations
+- update affected command/domain documentation
+- add or update tests for changed behavior
 
-- `RebaseContinue()` also needs `GIT_EDITOR=true` — same reason.
+For a new command:
 
-- `StashPop()` matches by stash message prefix (`gx-sync/...`), **not**
-  `stash@{0}`. User stash operations shift the stack, so `stash@{0}` pops
-  the wrong entry.
+```
+cmd/<cmd>.go
+internal/workflow/<cmd>.go
+docs/commands/<cmd>.md
+```
 
-- Rebase detection via `git rev-parse --show-current-patch` returns
-  false-negatives during interactive rebase pauses. Use `os.Stat` on
-  `.git/rebase-merge` / `.git/rebase-apply` instead.
+and add Git/domain files only when introducing new Git capabilities.
 
-### Architecture
+For test changes, read:
 
-- `cli.Error.Error()` return value is **never consumed** — `main.go`
-  reads `Message` directly via `errors.As`. Do not labor over the
-  `Error()` method text; it only exists for `error` interface compliance.
+```
+tests/AGENTS.md
+```
 
-- Only `main.go` prints errors — no other package (including workflow)
-  should call `fmt.Println` on a `cli.Error`.
+before changing shared test infrastructure.
 
-- `annotateSubtree` must recurse into leaf commands (e.g. `completion bash`).
-  Annotating only the parent cobra command is insufficient — the guard check
-  runs per-command.
+---
 
-- `runner.Output()` calls `strings.TrimSpace` on the full captured output, stripping
-  leading whitespace from the first line. Parse plumbing output with `strings.Fields`
-  instead of fixed-width substring indices.
+## High-value traps
 
-- `internal/forge/` package (GitHub/GitLab/Bitbucket PR URL detection) is NOT
-  listed in the architecture layer table or domain docs. When updating the
-  ship command docs, check forge.go + github.go + gitlab.go + bitbucket.go.
+Keep this list short. If a trap is specific to a subsystem, document it in that subsystem instead of adding it here.
 
-- `GetHEADState()` lives in `internal/git/branch.go` (not status.go) despite
-  being called by the status workflow. It shares the file with CurrentBranch,
-  Checkout, LocalBranchExists, and ShortHeadHash.
+- `.gx/config` is untracked. Never use broad `git add .` in tests where the config file must remain outside the commit; stage specific files instead.
+- Use `gx config` when testing config-to-workflow behavior so the test exercises the real `Set()` → file → `Load()` → workflow path.
+- `cli.Error.Error()` text is not a user-facing output contract; `main.go` reads `Message` directly.
+- gx-owned stashes must be located by their `gx-sync/` prefix, never by stash index.
+- Manual Git operations must not be confused with gx-orchestrated operations.
 
-### Config
+Subsystem-specific traps belong in:
 
-- `.gx/config` is an untracked file. `git add .` commits it to the branch,
-  causing it to vanish on checkout. Always `git add <specific_file>` in
-  conflict-setup tests.
-
-- `setup_base_repo` always writes `.gx/config`. Delete it with
-  `rm -rf "$TEST_DIR/.gx"` for tests that need no-config state.
-
-- Use `gx config <key> <value>` (not `write_config` raw JSON) when testing
-  the config→workflow chain — this exercises the full pipeline
-  (`config.Set()` → file → `config.Load()` → workflow consumption).
-
-- `gx config list` is a positional subcommand, NOT a `--list` flag.
-  There is no --list flag defined anywhere in the codebase.
-
-- Config has five keys not four: remote, defaultBranch, syncStrategy,
-  sensitivePatterns, and protectedBranches. The protectedBranches key
-  supports Get/Set/CLI --overwrite and is consumed by gx ship.
-
-### Test scripts
-
-- `run_test()` wraps the test function in a **subshell** — `$FAIL`/`$PASS` assertion counters
-  do NOT propagate to the parent. Use `$TEST_FAIL`/`$TEST_PASS` (test-level counters set by
-  `run_test()`) for exit decisions. `run_test()` detects failure by parsing `✗` from subshell
-  output.
-
-- In `run-all.sh`, **capture `PIPESTATUS` immediately** after the pipeline — any intervening
-  command resets it. Always: `bash "$suite" 2>&1 | tee "$out"; rc=${PIPESTATUS[0]}` (one line).
-
-- `while read` inside a **pipe** runs in a subshell — variable assignments don't propagate
-  to the parent. Use `<<<` (here-string) instead: `while read x; do arr+=("$x"); done <<< "$lines"`.
-
-- `run_gx` provides no stdin. Tests for interactive prompts (bufio.Scanner-based)
-  need a separate helper that pipes input, since `os.Stdin` returns EOF immediately.
-
-### File list filtering
-
-- After `--exclude` filtering removes all explicit file args, `hasSpecificFiles` stays
-  `true` but the file list is empty — causes `git.Add()` with no args to fail. Reset
-  `hasSpecificFiles = false` when `len(files) == 0` after filtering, so the caller
-  falls through to the empty-commit guard instead.
-
-### Doc maintenance
-
-- `docs/domains/*.md` routinely fall behind `internal/git/*.go` — new
-  functions get added to the code without updating the domain doc. After
-  adding or modifying a git function, always cross-reference the matching
-  domain doc for missing entries.
-
-- The doc cross-reference pattern: read `cmd/<cmd>.go` for flags/config,
-  `internal/workflow/<cmd>.go` for errors/behavior, `internal/git/<file>.go`
-  for function signatures, then diff against `docs/commands/<cmd>.md` and
-  `docs/domains/<domain>.md`.
-
-- "Currently implemented (code)" goes stale the moment a planned command
-  ships. Update that line whenever `resolve`/`start`/`tag`/`undo`/`pr`/
-  `clean`/`log`/`stash` moves from planned to implemented.
+```
+tests/AGENTS.md
+docs/domains/*.md
+```
