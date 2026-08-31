@@ -61,12 +61,21 @@ Each layer has a specific job and **must not** reach across boundaries.
 
 - Loads and saves `.gx/config` from the current directory
 - Falls back to defaults if the file is missing
-- Provides `Set`, `Get`, `Exists` helpers (used by `cmd/config.go` and `internal/workflow/guard.go`)
+- Provides `Set`, `Get`, `Exists`, and `Default()` helpers, plus the defaults `DefaultSensitivePatterns` and `DefaultProtectedBranches`
+- Provides list helpers `AppendSensitivePatterns`/`SetSensitivePatterns` and `AppendProtectedBranches`/`SetProtectedBranches` — used by `gx config` (`cmd/config.go`)
+- `gx init` seeds `sensitivePatterns` with `DefaultSensitivePatterns` (used by `cmd/config.go` and `internal/workflow/guard.go`)
 
 ### `internal/cli/`
 
-- Defines the `Error{Message, Hint}` type
+- Defines the `Error{Message, Hint}` type and `Warn{Message, Hint}` — a non-fatal warning struct
 - Only `main.go` prints errors — no other package
+
+### `internal/forge/`
+
+- Detects the remote git host from a `RemoteURL` (`forge.go`, `github.go`, `gitlab.go`, `bitbucket.go`, `url.go`)
+- Builds PR/MR create + existing-PR discovery URLs via the `Forge` interface (`PRCreateURL`, `ExistingPRURL`)
+- Consumed by `internal/workflow/ship.go` after a successful push; forge errors never fail the ship flow since the push already completed
+- See `docs/domains/forge.md`
 
 ---
 
@@ -119,6 +128,9 @@ Built-in commands (`help`, `completion`) are annotated dynamically in `sync.Once
 | `RunWithEnv(env, args...) error` | Always prints header | Git operations needing extra env vars (`GIT_EDITOR=true`) |
 | `Output(args...) (string, error)` | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.) |
 | `CombinedOutput(args...) (string, error)` | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr |
+| `Warn(msg string)` / `Warnf(msg, hint string)` | Via `WarnFn` | Emit a non-fatal warning through the wired handler |
+
+The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired by `cmd/root.go` `initRunner` to print a `⚠` warning glyph plus hint lines to stderr.
 
 `--verbose` / `-v` flag prints the plumbing commands (`Output()`/`CombinedOutput()`) that are hidden by default. The `▸ git <args>` headers from `Run()` / `RunWithEnv()` are always-on.
 
@@ -153,8 +165,8 @@ Built-in commands (`help`, `completion`) are annotated dynamically in `sync.Once
 | `remote.go` | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `HasUpstream`, `RemoteURL` |
 | `repository.go` | `IsRepository` |
 | `stage.go` | `AddAll`, `Add`, `AddPatch` |
-| `stash.go` | `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash` |
-| `status.go` | `Status`, `NonEmptyStatus`, `UntrackedFiles`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel` |
+| `stash.go` | `StashList`, `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash` |
+| `status.go` | `Status`, `NonEmptyStatus`, `UntrackedFiles`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus` |
 
 ---
 
