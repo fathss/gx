@@ -344,6 +344,7 @@ Do not allow documentation to describe planned behavior as implemented or implem
 - `gx status`
 - `gx init`
 - `gx config`
+- `gx clean`
 
 **Planned but not yet implemented:**
 
@@ -352,7 +353,6 @@ Do not allow documentation to describe planned behavior as implemented or implem
 - `tag`
 - `undo`
 - `pr`
-- `clean`
 - `log`
 - `stash`
 

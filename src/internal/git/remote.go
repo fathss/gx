@@ -1,11 +1,10 @@
 package git
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/fathss/gx/internal/runner"
-
-	"fmt"
 )
 
 func Fetch(run *runner.Runner, remote string) error {
@@ -66,4 +65,10 @@ func HasUpstream(run *runner.Runner, branch string) bool {
 // RemoteURL returns the URL of the given remote.
 func RemoteURL(run *runner.Runner, remote string) (string, error) {
 	return run.Output("remote", "get-url", remote)
+}
+
+// DeleteRemoteBranch deletes a branch on the remote with
+// `git push <remote> --delete <branch>`.
+func DeleteRemoteBranch(run *runner.Runner, remote, branch string) error {
+	return run.Run("push", remote, "--delete", branch)
 }

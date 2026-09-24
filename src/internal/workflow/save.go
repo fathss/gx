@@ -155,9 +155,9 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 			if patchMode {
 				// Issue 10b: In patch mode, warn but don't block
 				run.Warnf(
-				"Sensitive file(s) detected in the working tree:\n  "+strings.Join(matches, "\n  "),
-				"In patch mode you can choose to skip hunks from these files.\nUse --allow-sensitive to suppress this warning.",
-			)
+					"Sensitive file(s) detected in the working tree:\n  "+strings.Join(matches, "\n  "),
+					"In patch mode you can choose to skip hunks from these files.\nUse --allow-sensitive to suppress this warning.",
+				)
 			} else {
 				msg := "Sensitive file(s) detected — refusing to stage:\n"
 				for _, m := range matches {
@@ -309,6 +309,9 @@ func checkConflictMarkers(run *runner.Runner) error {
 	//   file.txt:7: leftover conflict marker
 	conflicted := make(map[string]bool)
 	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(strings.ToLower(line), "conflict marker") {
+			continue
+		}
 		if idx := strings.Index(line, ":"); idx > 0 {
 			conflicted[line[:idx]] = true
 		}

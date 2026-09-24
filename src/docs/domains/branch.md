@@ -65,3 +65,52 @@ Switch to an existing branch.
 | Branch doesn't exist | Fails. |
 | Uncommitted changes conflict | Fails — checkout blocked by dirty working tree. |
 | Merge conflict in progress | Fails. |
+
+---
+
+## MergedBranches
+
+```
+git branch --merged <base>
+```
+
+Returns local branches merged into base. Strips the `* ` marker from the
+current branch entry and skips empty lines. Returns `nil` when no branches
+are merged.
+
+---
+
+## MergedRemoteBranches
+
+```
+git branch -r --merged <remote>/<base>
+```
+
+Returns remote-tracking refs merged into the given base. Qualifies the base
+with `<remote>/` when it is not already qualified (e.g. `develop` becomes
+`origin/develop`). Returns `nil` when no refs are merged.
+
+---
+
+## DeleteLocalBranch
+
+```
+git branch -d <branch>
+```
+
+Deletes a local branch with safe delete (refuses when not fully merged).
+
+| Edge case | Behaviour |
+|---|---|
+| Branch not fully merged | Fails — safe delete refuses. |
+
+---
+
+## DeleteRemoteTrackingBranch
+
+```
+git branch -d -r <remote>/<branch>
+```
+
+Deletes a remote-tracking ref. Normalizes the branch argument so a bare name
+or an already-qualified ref both resolve to `<remote>/<branch>`.

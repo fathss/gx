@@ -116,6 +116,11 @@ Returns the URL of the given remote. Used by `gx ship` after a successful push t
 
 ---
 
-## Future additions
+## DeleteRemoteBranch
 
-- `DeleteRemoteBranch` — `git push origin --delete <branch>`
+```
+git push <remote> --delete <branch>
+```
+
+Deletes a branch on the remote. Affects every collaborator — the branch is
+removed from the shared remote, not just local refs.
