@@ -15,12 +15,14 @@ Each layer has a specific job and **must not** reach across boundaries.
 ### `cmd/` — entrypoints
 
 **Can:**
+
 - Define cobra commands and flags
 - Define `no_repo` and `no_config` annotations to opt out of central pre-flight checks
 - Load config and pass it to the workflow
 - Call exactly one workflow function
 
 **Cannot:**
+
 - Execute git commands directly
 - Contain workflow/business logic
 
@@ -29,31 +31,37 @@ Each layer has a specific job and **must not** reach across boundaries.
 ### `internal/workflow/` — orchestration
 
 **Can:**
+
 - Combine git operations into user-facing features
 - Convert every error into `cli.Error{Message, Hint}`
 
 **Cannot:**
+
 - Call `exec.Command` or invoke git directly
 - Import or know about cobra internals
 
 ### `internal/git/` — one function per git operation
 
 **Can:**
+
 - Wrap runner calls into named functions (`Fetch`, `Rebase`, etc.)
 - Return raw errors from the runner
 
 **Cannot:**
+
 - Print messages to the terminal
 - Know about workflows or create `cli.Error`
 
 ### `internal/runner/` — git execution
 
 **Can:**
+
 - Execute `git` subprocesses
 - Log verbose output when `--verbose` is set
 - Pipe stdout/stderr to the terminal
 
 **Cannot:**
+
 - Understand what the git commands mean
 - Implement business logic
 
@@ -105,14 +113,15 @@ Every command passes through `PersistentPreRunE` in `cmd/root.go` before its `Ru
 2. **Config required** — if the leaf command does NOT have `no_config` annotation, `RequireConfig()` blocks without `.gx/config`.
 
 Commands opt out with annotations:
+
 ```go
 Annotations: map[string]string{"no_config": "", "no_repo": ""},
 ```
 
-| Annotation | Meaning |
-|---|---|
-| `no_config` | Works without `.gx/config` (e.g. `init`, `config`) |
-| `no_repo` | Works outside a git repo (e.g. `help`, `completion`) |
+| Annotation  | Meaning                                              |
+| ----------- | ---------------------------------------------------- |
+| `no_config` | Works without `.gx/config` (e.g. `init`, `config`)   |
+| `no_repo`   | Works outside a git repo (e.g. `help`, `completion`) |
 
 The guard logic lives in `internal/workflow/guard.go` (two functions: `RequireRepository`, `RequireConfig`). Workflows no longer check `IsRepository` or `Exists` individually — the guard handles it centrally.
 
@@ -122,13 +131,13 @@ Built-in commands (`help`, `completion`) are annotated dynamically in `sync.Once
 
 ## Runner methods
 
-| Method | Visibility | Use case |
-|---|---|---|
-| `Run(args...) error` | Always prints `▸ git <args>` | User-visible git operations (fetch, rebase, commit, etc.) |
-| `RunWithEnv(env, args...) error` | Always prints header | Git operations needing extra env vars (`GIT_EDITOR=true`) |
-| `Output(args...) (string, error)` | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.) |
-| `CombinedOutput(args...) (string, error)` | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr |
-| `Warn(msg string)` / `Warnf(msg, hint string)` | Via `WarnFn` | Emit a non-fatal warning through the wired handler |
+| Method                                         | Visibility                    | Use case                                                             |
+| ---------------------------------------------- | ----------------------------- | -------------------------------------------------------------------- |
+| `Run(args...) error`                           | Always prints `▸ git <args>`  | User-visible git operations (fetch, rebase, commit, etc.)            |
+| `RunWithEnv(env, args...) error`               | Always prints header          | Git operations needing extra env vars (`GIT_EDITOR=true`)            |
+| `Output(args...) (string, error)`              | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.) |
+| `CombinedOutput(args...) (string, error)`      | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr                          |
+| `Warn(msg string)` / `Warnf(msg, hint string)` | Via `WarnFn`                  | Emit a non-fatal warning through the wired handler                   |
 
 The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired by `cmd/root.go` `initRunner` to print a `⚠` warning glyph plus hint lines to stderr.
 
@@ -138,52 +147,59 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 
 ## Workflow files
 
-| File | Contents |
-|---|---|---|
-| `internal/workflow/guard.go` | `RequireRepository()`, `RequireConfig()` — central pre-flight |
-| `internal/workflow/init.go` | `Init()` — auto-detect remote/branch, write config |
-| `internal/workflow/sync.go` | `Sync()` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStashPop()`, `autoSkipSync()` |
-| `internal/workflow/save.go` | `Save()` — categorized preview, sensitive check, stage, commit, `promptConfirm()` |
-| `internal/workflow/ship.go` | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration |
-| `internal/workflow/status.go` | `Status()` — assemble six-section snapshot, `upstreamRef()`, `parseUpstreamRef()` |
-| `internal/workflow/clean.go` | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()` |
+| File                               | Contents                                                                                                                                      |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                 |
+| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                            |
+| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`       |
+| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the recover invariant (`syncGit` seam + `prodSyncGit` adapter) |
+| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit, `promptConfirm()`                                                             |
+| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                               |
+| `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot, `upstreamRef()`, `parseUpstreamRef()`                                                             |
+| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`                                                                     |
 
 ---
 
 ## Git domain files
 
-| File | Operations |
-|---|---|---|
-| `branch.go` | `CurrentBranch`, `Checkout`, `LocalBranchExists`, `MergedBranches`, `MergedRemoteBranches`, `DeleteLocalBranch`, `DeleteRemoteTrackingBranch`, `GetHEADState`, `ShortHeadHash`, `HEADState` |
-| `commit.go` | `Commit`, `CommitEditor`, `CommitAllowEmpty`, `CommitAllowEmptyEditor` |
-| `detect.go` | `DetectRemote`, `DetectDefaultBranch` |
-| `diff.go` | `DiffStatCached`, `HasStagedChanges`, `DiffUnstagedFiles`, `CheckCachedDiff` |
-| `divergence.go` | `AheadBehind` |
-| `log.go` | `RecentCommits`, `CommitInfo` |
-| `merge.go` | `Merge`, `IsMergeInProgress`, `MergeContinue`, `MergeAbort`, `ConflictedFiles` |
-| `patterns.go` | `MatchSensitivePatterns`, `FilterExcluded`, `SanitizePatterns` |
-| `rebase.go` | `Rebase`, `RebaseAbort`, `RebaseContinue`, `RebaseSkip`, `IsRebaseInProgress`, `CurrentRebasePatchInfo` |
-| `remote.go` | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `HasUpstream`, `RemoteURL`, `DeleteRemoteBranch` |
-| `repository.go` | `IsRepository` |
-| `stage.go` | `AddAll`, `Add`, `AddPatch` |
-| `stash.go` | `StashList`, `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash` |
-| `status.go` | `Status`, `NonEmptyStatus`, `UntrackedFiles`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus` |
+| File            | Operations                                                                                                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `branch.go`     | `CurrentBranch`, `Checkout`, `LocalBranchExists`, `MergedBranches`, `MergedRemoteBranches`, `DeleteLocalBranch`, `DeleteRemoteTrackingBranch`, `GetHEADState`, `ShortHeadHash`, `HEADState` |
+| `commit.go`     | `Commit`, `CommitEditor`, `CommitAllowEmpty`, `CommitAllowEmptyEditor`                                                                                                                      |
+| `detect.go`     | `DetectRemote`, `DetectDefaultBranch`                                                                                                                                                       |
+| `diff.go`       | `DiffStatCached`, `HasStagedChanges`, `DiffUnstagedFiles`, `CheckCachedDiff`                                                                                                                |
+| `divergence.go` | `AheadBehind`                                                                                                                                                                               |
+| `log.go`        | `RecentCommits`, `CommitInfo`                                                                                                                                                               |
+| `merge.go`      | `Merge`, `IsMergeInProgress`, `MergeContinue`, `MergeAbort`, `ConflictedFiles`                                                                                                              |
+| `patterns.go`   | `MatchSensitivePatterns`, `FilterExcluded`, `SanitizePatterns`                                                                                                                              |
+| `rebase.go`     | `Rebase`, `RebaseAbort`, `RebaseContinue`, `RebaseSkip`, `IsRebaseInProgress`, `CurrentRebasePatchInfo`                                                                                     |
+| `remote.go`     | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `HasUpstream`, `RemoteURL`, `DeleteRemoteBranch`               |
+| `repository.go` | `IsRepository`                                                                                                                                                                              |
+| `stage.go`      | `AddAll`, `Add`, `AddPatch`                                                                                                                                                                 |
+| `stash.go`      | `StashList`, `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash`                                                                                           |
+| `status.go`     | `Status`, `NonEmptyStatus`, `UntrackedFiles`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus`                                                      |
 
 ---
 
 ## Config (`.gx/config`)
 
 ```json
-{ "remote": "origin", "defaultBranch": "develop", "syncStrategy": "rebase", "sensitivePatterns": [".env", "*.pem", "*secret*", "*.key"], "protectedBranches": ["main", "master", "develop"] }
+{
+  "remote": "origin",
+  "defaultBranch": "develop",
+  "syncStrategy": "rebase",
+  "sensitivePatterns": [".env", "*.pem", "*secret*", "*.key"],
+  "protectedBranches": ["main", "master", "develop"]
+}
 ```
 
-| Field | Default | Used by |
-|---|---|---|
-| `remote` | `origin` | `sync` — remote to fetch from |
-| `defaultBranch` | `develop` | `sync` — branch to sync against |
-| `syncStrategy` | `rebase` | `sync` — `rebase` or `merge` |
-| `sensitivePatterns` | `[]` (seeded by `gx init`) | `save` — glob patterns for sensitive file detection |
-| `protectedBranches` | `["main", "master", "develop"]` | `ship` — branches protected from direct push |
+| Field               | Default                         | Used by                                             |
+| ------------------- | ------------------------------- | --------------------------------------------------- |
+| `remote`            | `origin`                        | `sync` — remote to fetch from                       |
+| `defaultBranch`     | `develop`                       | `sync` — branch to sync against                     |
+| `syncStrategy`      | `rebase`                        | `sync` — `rebase` or `merge`                        |
+| `sensitivePatterns` | `[]` (seeded by `gx init`)      | `save` — glob patterns for sensitive file detection |
+| `protectedBranches` | `["main", "master", "develop"]` | `ship` — branches protected from direct push        |
 
 Missing file = `RequireConfig()` guard blocks most commands with "run gx init". The `config` package (`Load()`) falls back to defaults when the file is missing — only `gx config` and `gx init` use this path (both annotated `no_config`). Empty fields in file = fall back to defaults.
 
@@ -193,22 +209,23 @@ Missing file = `RequireConfig()` guard blocks most commands with "run gx init". 
 
 You need three files:
 
-| File | What goes in it |
-|---|---|
-| `cmd/foo.go` | Cobra command definition, load config, call workflow |
-| `internal/workflow/foo.go` | Orchestrate git ops, return `cli.Error` on failure |
-| `docs/commands/foo.md` | User-facing docs for the command |
+| File                       | What goes in it                                      |
+| -------------------------- | ---------------------------------------------------- |
+| `cmd/foo.go`               | Cobra command definition, load config, call workflow |
+| `internal/workflow/foo.go` | Orchestrate git ops, return `cli.Error` on failure   |
+| `docs/commands/foo.md`     | User-facing docs for the command                     |
 
 **Exception — `gx config`** bypasses the workflow layer (reads/writes `.gx/config` via the `config` package directly).
 
 If the command introduces a **new git capability** (e.g. pushing, tagging, stashing), also add:
 
-| File | What goes in it |
-|---|---|
+| File                   | What goes in it                               |
+| ---------------------- | --------------------------------------------- |
 | `internal/git/push.go` | Git operations (one function per git command) |
-| `docs/domains/push.md` | Docs for developers extending that domain |
+| `docs/domains/push.md` | Docs for developers extending that domain     |
 
 Existing commands reuse existing domain files. For example:
+
 - `gx ship` reuses `remote.go` (push functions live there) and adds `divergence.go`
 - `gx resolve` would add `conflict.go`
 - `gx tag` would add `tag.go`
@@ -238,11 +255,11 @@ No command leaves the repo in a silent broken state.
 
 See `docs/commands/sync.md` for the full Q1–Q6 state machine. Key signals:
 
-| Signal | Detection |
-|---|---|
+| Signal             | Detection                                               |
+| ------------------ | ------------------------------------------------------- |
 | `RebaseInProgress` | `os.Stat` on `.git/rebase-merge` or `.git/rebase-apply` |
-| `MergeInProgress` | `git rev-parse -q --verify MERGE_HEAD` |
-| `HasGXStash` | `git stash list` parsed for `gx-sync/` prefix |
+| `MergeInProgress`  | `git rev-parse -q --verify MERGE_HEAD`                  |
+| `HasGXStash`       | `git stash list` parsed for `gx-sync/` prefix           |
 
 The gx stash presence is the signal distinguishing gx-orchestrated pauses from manual ones.
 

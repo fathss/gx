@@ -88,7 +88,6 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
-		argsProvided := len(args) > 0
 		if len(args) >= 1 {
 			cfg.Remote = args[0]
 		}
@@ -96,7 +95,13 @@ var syncCmd = &cobra.Command{
 			cfg.DefaultBranch = args[1]
 		}
 
-		return workflow.Sync(run, cfg, argsProvided, syncContinue, syncRebase, syncMerge, syncAbort, syncSkip)
+		return workflow.Sync(run, cfg, workflow.SyncOptions{
+			Continue: syncContinue,
+			Rebase:   syncRebase,
+			Merge:    syncMerge,
+			Abort:    syncAbort,
+			Skip:     syncSkip,
+		})
 	},
 }
 
