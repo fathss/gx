@@ -11,8 +11,8 @@ source "$SCRIPT_DIR/lib.sh"
 # BEHAVIORAL CONTRACT (derived from docs, before reading implementation)
 #
 # ID   Class             Precondition                   Action            Expected outcome                                   Spec ref
-# C01  SPEC              merged local branch            gx clean          local branch pruned, exit 0                        docs/commands/clean.md#normal-flow
-# C02  SPEC              merged remote-tracking ref     gx clean          remote-tracking ref pruned, exit 0                 docs/commands/clean.md#normal-flow
+# C01  SPEC              merged local branch            gx clean (y)      local branch pruned, exit 0                        docs/commands/clean.md#normal-flow
+# C02  SPEC              merged remote-tracking ref     gx clean (y)      remote-tracking ref pruned, exit 0                 docs/commands/clean.md#normal-flow
 # C03  SPEC              protected branch (main/dev)    gx clean          protected branch not pruned, exit 0                docs/commands/clean.md#edge-cases
 # C04  SPEC              current checked-out branch     gx clean          current branch not pruned, exit 0                  docs/commands/clean.md#edge-cases
 # C05  SPEC              default branch itself          gx clean          default branch not pruned, exit 0                  docs/commands/clean.md#edge-cases
@@ -34,6 +34,12 @@ source "$SCRIPT_DIR/lib.sh"
 # C21  INVARIANT         any clean completion           gx clean          repository integrity passes fsck                   (safety)
 # C22  INVARIANT         clean run twice in a row       gx clean          second run is idempotent no-op, exit 0             (safety)
 # C23  EXPECTED-FAIL    detached HEAD                  gx clean          prunes merged branches, leaves HEAD detached       docs/commands/clean.md#candidate-selection
+# C24  SPEC              merged local candidates       gx clean          prompts with exact ref list [y/N], exit 0          docs/commands/clean.md#normal-flow
+# C25  SPEC              declined local prompt (n)     gx clean          nothing pruned (local or remote-tracking), exit 0   docs/commands/clean.md#normal-flow
+# C26  SPEC              empty input on local prompt   gx clean          defaults to decline, nothing pruned, exit 0         docs/commands/clean.md#edge-cases
+# C27  SPEC              declined local, confirmed remote gx clean --remote local branch kept, remote branch deleted, exit 0   docs/commands/clean.md#normal-flow
+# C28  SPEC              merged local candidates       gx clean --yes    pruned without any prompt, exit 0                  docs/commands/clean.md#flags
+# C29  SPEC              merged remote branch          gx clean --yes --remote remote branch deleted without any prompt, exit 0 docs/commands/clean.md#flags
 # ======================================================================
 
 # ======================================================================
@@ -280,7 +286,7 @@ test_01_prune_merged_local() {
     assert_local_branch_exists "pre: local branch exists" "feature/merged-local"
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_output_contains "shows Pruned summary" "Pruned"
@@ -307,7 +313,7 @@ test_02_prune_remote_tracking() {
     assert_remote_tracking_exists "pre: remote-tracking exists" "feature/remote-track"
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_output_contains "shows Pruned summary" "Pruned"
@@ -362,7 +368,7 @@ test_04_current_not_pruned() {
     git_checkout feature/current-merged >/dev/null 2>&1
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_local_branch_exists "current branch not pruned" "feature/current-merged"
@@ -437,7 +443,7 @@ test_07_remote_not_deleted_without_flag() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/no-remote-flag"
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_remote_branch_exists "remote branch untouched without --remote" "feature/no-remote-flag"
@@ -462,12 +468,15 @@ test_08_remote_prompt_lists_branches() {
     git_checkout develop >/dev/null 2>&1
 
     snapshot_state
-    run_gx_stdin "n" clean --remote
+    run_gx_stdin $'y\nn' clean --remote
 
     assert_exit_code "exits 0" 0
+    assert_output_contains "local prompt shown" "Prune"
+    assert_output_contains "remote prompt lists count" "Delete 2 remote branch"
     assert_output_contains "shows origin/feature/list-a" "origin/feature/list-a"
     assert_output_contains "shows origin/feature/list-b" "origin/feature/list-b"
     assert_output_contains "shows [y/N] prompt" "[y/N]"
+    assert_local_branch_not_exists "local branch pruned after local confirm" "feature/list-a"
     assert_remote_branch_exists "origin/feature/list-a still exists" "feature/list-a"
     assert_remote_branch_exists "origin/feature/list-b still exists" "feature/list-b"
     assert_git_valid "repo integrity"
@@ -490,10 +499,12 @@ test_09_remote_confirm_deletes() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/remote-confirm"
 
     snapshot_state
-    run_gx_stdin "y" clean --remote
+    run_gx_stdin $'y\ny' clean --remote
 
     assert_exit_code "exits 0" 0
     assert_output_contains "Pruned summary" "Pruned"
+    assert_output_contains "local prompt shown" "Prune"
+    assert_output_contains "remote prompt shown" "Delete 1 remote branch"
     assert_remote_branch_not_exists "remote branch deleted after confirm" "feature/remote-confirm"
     assert_local_branch_not_exists "local branch pruned" "feature/remote-confirm"
     assert_remote_tracking_not_exists "remote-tracking pruned" "feature/remote-confirm"
@@ -517,7 +528,7 @@ test_10_remote_decline_keeps_remote() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/remote-decline"
 
     snapshot_state
-    run_gx_stdin "n" clean --remote
+    run_gx_stdin $'y\nn' clean --remote
 
     assert_exit_code "exits 0" 0
     assert_remote_branch_exists "remote branch still intact after decline" "feature/remote-decline"
@@ -543,7 +554,7 @@ test_11_remote_empty_defaults_decline() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/empty-decline"
 
     snapshot_state
-    run_gx_stdin "" clean --remote
+    run_gx_stdin $'y\n\n' clean --remote
 
     assert_exit_code "exits 0" 0
     assert_remote_branch_exists "remote branch still intact (empty = decline)" "feature/empty-decline"
@@ -574,7 +585,7 @@ test_12_no_local_still_prunes_remote() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/no-local"
 
     snapshot_state
-    run_gx_stdin "y" clean --remote
+    run_gx_stdin $'y\ny' clean --remote
 
     assert_exit_code "exits 0" 0
     assert_remote_branch_not_exists "remote branch deleted" "feature/no-local"
@@ -603,7 +614,7 @@ test_13_remote_candidates_use_remote_base() {
     assert_remote_tracking_exists "pre: remote-tracking exists" "feature/only-local-merge"
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_remote_tracking_exists "remote-tracking not pruned (not merged on remote base)" "feature/only-local-merge"
@@ -628,7 +639,7 @@ test_14_dirty_working_tree_preserved() {
     echo "dirty content" >> readme.md
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_output_contains "Pruned summary" "Pruned"
@@ -766,7 +777,7 @@ test_20_no_commits_lost_invariant() {
     git_checkout develop >/dev/null 2>&1
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_no_commits_lost "all commits remain reachable"
@@ -789,7 +800,7 @@ test_21_git_valid_invariant() {
     git_checkout develop >/dev/null 2>&1
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_git_valid "repository integrity check passes fsck"
@@ -811,7 +822,7 @@ test_22_idempotent_clean() {
     git_checkout develop >/dev/null 2>&1
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
     assert_exit_code "first clean exits 0" 0
     assert_local_branch_not_exists "branch pruned after first clean" "feature/idempotent-test"
 
@@ -842,7 +853,7 @@ test_23_detached_head() {
     assert_local_branch_exists "pre: branch exists" "feature/detached-prune"
 
     snapshot_state
-    run_gx clean
+    run_gx_stdin "y" clean
 
     assert_exit_code "exits 0" 0
     assert_local_branch_not_exists "merged branch pruned under detached HEAD" "feature/detached-prune"
@@ -850,6 +861,170 @@ test_23_detached_head() {
     assert_git_valid "repo integrity"
     assert_no_commits_lost "no commits lost"
 }
+
+# ======================================================================
+# TEST 24 — Local prompt lists the exact refs to prune
+# ======================================================================
+# Contract: C24
+# Class: SPEC
+# Catches: clean pruning local refs without showing the user what will be deleted
+test_24_local_prompt_lists_refs() {
+    echo ""
+    echo "=== Test 24: local prompt lists candidate refs ==="
+    setup_clean_repo
+    cd "$TEST_DIR"
+    create_merged_branch "feature/prompt-a"
+    create_merged_branch "feature/prompt-b"
+    git_checkout develop >/dev/null 2>&1
+
+    snapshot_state
+    run_gx_stdin "n" clean
+
+    assert_exit_code "exits 0" 0
+    assert_output_contains "shows local prompt" "Prune"
+    assert_output_contains "lists local branch" "feature/prompt-a"
+    assert_output_contains "lists second local branch" "feature/prompt-b"
+    assert_output_contains "lists remote-tracking ref" "origin/feature/prompt-a"
+    assert_output_contains "shows [y/N] prompt" "[y/N]"
+    assert_git_valid "repo integrity"
+}
+
+# ======================================================================
+# TEST 25 — Declined local prompt (n) prunes nothing
+# ======================================================================
+# Contract: C25
+# Class: SPEC
+# Catches: clean deleting local or remote-tracking refs despite an explicit decline
+test_25_local_decline_keeps_everything() {
+    echo ""
+    echo "=== Test 25: declined local prompt keeps every ref ==="
+    setup_clean_repo
+    cd "$TEST_DIR"
+    create_merged_branch "feature/local-decline"
+    git_checkout develop >/dev/null 2>&1
+
+    assert_local_branch_exists "pre: local branch exists" "feature/local-decline"
+    assert_remote_tracking_exists "pre: remote-tracking exists" "feature/local-decline"
+
+    snapshot_state
+    run_gx_stdin "n" clean
+
+    assert_exit_code "exits 0" 0
+    assert_output_contains "reports Pruned 0" "Pruned 0"
+    assert_local_branch_exists "local branch intact after decline" "feature/local-decline"
+    assert_remote_tracking_exists "remote-tracking intact after decline" "feature/local-decline"
+    assert_git_valid "repo integrity"
+    assert_no_commits_lost "no commits lost"
+}
+
+# ======================================================================
+# TEST 26 — Empty input on local prompt defaults to decline
+# ======================================================================
+# Contract: C26
+# Class: SPEC
+# Catches: clean treating an empty answer at the local prompt as confirmation
+test_26_local_empty_defaults_decline() {
+    echo ""
+    echo "=== Test 26: empty input on local prompt defaults to decline ==="
+    setup_clean_repo
+    cd "$TEST_DIR"
+    create_merged_branch "feature/local-empty"
+    git_checkout develop >/dev/null 2>&1
+
+    snapshot_state
+    run_gx_stdin "" clean
+
+    assert_exit_code "exits 0" 0
+    assert_output_contains "reports Pruned 0" "Pruned 0"
+    assert_local_branch_exists "local branch intact (empty = decline)" "feature/local-empty"
+    assert_remote_tracking_exists "remote-tracking intact (empty = decline)" "feature/local-empty"
+    assert_git_valid "repo integrity"
+}
+
+# ======================================================================
+# TEST 27 — Local declined, remote confirmed: only remote branches deleted
+# ======================================================================
+# Contract: C27
+# Class: SPEC
+# Catches: clean coupling the local answer to the remote answer (or vice versa)
+test_27_local_declined_remote_confirmed() {
+    echo ""
+    echo "=== Test 27: local declined, remote confirmed ==="
+    setup_clean_repo
+    cd "$TEST_DIR"
+    create_merged_branch "feature/remote-only"
+    git_checkout develop >/dev/null 2>&1
+
+    assert_remote_branch_exists "pre: remote branch exists" "feature/remote-only"
+
+    snapshot_state
+    run_gx_stdin $'n\ny' clean --remote
+
+    assert_exit_code "exits 0" 0
+    assert_local_branch_exists "local branch intact after decline" "feature/remote-only"
+    assert_branch "still on develop" "develop"
+    assert_remote_branch_not_exists "remote branch deleted after confirm" "feature/remote-only"
+    assert_output_contains "reports Pruned 1" "Pruned 1"
+    assert_git_valid "repo integrity"
+    assert_no_commits_lost "no commits lost"
+}
+
+# ======================================================================
+# TEST 28 — --yes prunes without prompting
+# ======================================================================
+# Contract: C28
+# Class: SPEC
+# Catches: --yes still blocking on a confirmation prompt (or prompting at all)
+test_28_yes_skips_prompt() {
+    echo ""
+    echo "=== Test 28: --yes prunes without prompting ==="
+    setup_clean_repo
+    cd "$TEST_DIR"
+    create_merged_branch "feature/yes-local"
+    git_checkout develop >/dev/null 2>&1
+
+    assert_local_branch_exists "pre: local branch exists" "feature/yes-local"
+
+    snapshot_state
+    run_gx clean --yes
+
+    assert_exit_code "exits 0" 0
+    assert_output_not_contains "no confirmation prompt" "[y/N]"
+    assert_output_contains "shows Pruned summary" "Pruned"
+    assert_local_branch_not_exists "local branch pruned without prompt" "feature/yes-local"
+    assert_remote_tracking_not_exists "remote-tracking pruned without prompt" "feature/yes-local"
+    assert_git_valid "repo integrity"
+    assert_no_commits_lost "no commits lost"
+}
+
+# ======================================================================
+# TEST 29 — --yes --remote deletes remote branches without prompting
+# ======================================================================
+# Contract: C29
+# Class: SPEC
+# Catches: --yes not covering the remote scope, so scripts still hang or decline
+test_29_yes_remote_skips_prompt() {
+    echo ""
+    echo "=== Test 29: --yes --remote deletes remote without prompting ==="
+    setup_clean_repo
+    cd "$TEST_DIR"
+    create_merged_branch "feature/yes-remote"
+    git_checkout develop >/dev/null 2>&1
+
+    assert_remote_branch_exists "pre: remote branch exists" "feature/yes-remote"
+
+    snapshot_state
+    run_gx clean --yes --remote
+
+    assert_exit_code "exits 0" 0
+    assert_output_not_contains "no confirmation prompt" "[y/N]"
+    assert_output_contains "shows Pruned summary" "Pruned"
+    assert_remote_branch_not_exists "remote branch deleted without prompt" "feature/yes-remote"
+    assert_local_branch_not_exists "local branch pruned without prompt" "feature/yes-remote"
+    assert_git_valid "repo integrity"
+    assert_no_commits_lost "no commits lost"
+}
+
 
 # ======================================================================
 # RUN ALL
@@ -884,6 +1059,13 @@ run_test test_19_fetch_failure_aborts "Test 19: remote fetch failure aborts clea
 run_test test_20_no_commits_lost_invariant "Test 20: invariant — no commits lost"
 run_test test_21_git_valid_invariant "Test 21: invariant — git fsck repository validity"
 run_test test_22_idempotent_clean "Test 22: invariant — clean is idempotent"
+run_test test_24_local_prompt_lists_refs "Test 24: local prompt lists candidate refs"
+run_test test_25_local_decline_keeps_everything "Test 25: declined local prompt keeps every ref"
+run_test test_26_local_empty_defaults_decline "Test 26: empty input on local prompt defaults to decline"
+run_test test_27_local_declined_remote_confirmed "Test 27: local declined, remote confirmed"
+run_test test_28_yes_skips_prompt "Test 28: --yes prunes without prompting"
+run_test test_29_yes_remote_skips_prompt "Test 29: --yes --remote deletes remote without prompting"
+# Known-failing EXPECTED-FAIL case runs last: a failure aborts the suite (set -e).
 run_test test_23_detached_head "Test 23: detached HEAD leaves HEAD detached"
 
 echo ""

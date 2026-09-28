@@ -2,7 +2,9 @@ package workflow
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -337,20 +339,33 @@ func checkConflictMarkers(run *runner.Runner) error {
 	return nil
 }
 
+// stdinReader is shared by every confirmation prompt. A fresh bufio.Scanner
+// per prompt would discard bytes it already buffered from os.Stdin, so a
+// second prompt in the same run would never see the user's remaining answers.
+var stdinReader = bufio.NewReader(os.Stdin)
+
 // promptConfirm asks the user a yes/no question on the terminal.
-// Returns true if the user answered y or Y. Returns false for n, N, or empty.
+// Returns true if the user answered y or Y. Returns false for n, N, empty,
+// or EOF (piped/closed stdin).
 func promptConfirm(prompt string) (bool, error) {
 	fmt.Printf("%s [y/N]: ", prompt)
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return false, &cli.Error{
-				Message: fmt.Sprintf("Failed to read input: %s.", err),
-			}
+	line, err := stdinReader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, &cli.Error{
+			Message: fmt.Sprintf("Failed to read input: %s.", err),
 		}
-		// EOF (e.g. pipe) — treat as no
-		return false, nil
 	}
-	answer := strings.TrimSpace(scanner.Text())
+	// EOF still carries whatever was typed before the stream closed; an empty
+	// stream gives an empty line here, and empty means "no".
+	answer := strings.TrimSpace(line)
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
+// confirm answers a prompt with yes without asking when autoYes is set
+// (--yes), and otherwise asks the user.
+func confirm(prompt string, autoYes bool) (bool, error) {
+	if autoYes {
+		return true, nil
+	}
+	return promptConfirm(prompt)
 }

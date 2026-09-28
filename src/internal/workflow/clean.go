@@ -11,10 +11,11 @@ import (
 )
 
 // Clean prunes branches merged into the base branch.
-// It always fetches first, then deletes local branches and remote-tracking
-// refs merged into the relevant base. With remote==true it prompts and
-// deletes remote branches as well.
-func Clean(run *runner.Runner, cfg *config.Config, remote bool) error {
+// It always fetches first, then prompts before deleting local branches and
+// remote-tracking refs merged into the relevant base. With remote==true it
+// prompts a second time before deleting remote branches. With yes==true both
+// prompts are skipped and every candidate is deleted.
+func Clean(run *runner.Runner, cfg *config.Config, remote, yes bool) error {
 	// 1. Fetch from remote so merged decision reflects current remote state.
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
@@ -62,7 +63,27 @@ func Clean(run *runner.Runner, cfg *config.Config, remote bool) error {
 		}
 	}
 
-	// 5. Confirmation for remote deletion (Option A).
+	// 5. Confirmations, both collected before any mutation.
+	//    Local scope first (local branches + remote-tracking refs), then the
+	//    remote scope when --remote was requested. Every prompt defaults to No,
+	//    and --yes answers both with yes without asking.
+	var doLocalDelete bool
+	if len(filteredLocal) > 0 || len(filteredRemoteTracking) > 0 {
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal)+len(filteredRemoteTracking)))
+		for _, br := range filteredLocal {
+			b.WriteString(fmt.Sprintf("\n  %s", branchListingName(br)))
+		}
+		for _, ref := range filteredRemoteTracking {
+			b.WriteString(fmt.Sprintf("\n  %s", branchListingName(ref)))
+		}
+		confirmed, err := confirm(b.String(), yes)
+		if err != nil {
+			return err
+		}
+		doLocalDelete = confirmed
+	}
+
 	var doRemoteDelete bool
 	if remote && len(remoteToDelete) > 0 {
 		var b strings.Builder
@@ -70,7 +91,7 @@ func Clean(run *runner.Runner, cfg *config.Config, remote bool) error {
 		for _, br := range remoteToDelete {
 			b.WriteString(fmt.Sprintf("\n  %s/%s", cfg.Remote, br))
 		}
-		confirmed, err := promptConfirm(b.String())
+		confirmed, err := confirm(b.String(), yes)
 		if err != nil {
 			return err
 		}
@@ -81,40 +102,38 @@ func Clean(run *runner.Runner, cfg *config.Config, remote bool) error {
 	pruned := 0
 	var firstErr error
 
-	for _, br := range filteredLocal {
-		trimmed := strings.TrimSpace(br)
-		// MergedBranches already strips "* " but be safe.
-		if strings.HasPrefix(trimmed, "* ") {
-			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "* "))
-		}
-		if trimmed == "" {
-			continue
-		}
-		if err := git.DeleteLocalBranch(run, trimmed); err != nil {
-			if firstErr == nil {
-				firstErr = err
+	if doLocalDelete {
+		for _, br := range filteredLocal {
+			trimmed := branchListingName(br)
+			if trimmed == "" {
+				continue
 			}
-			continue
+			if err := git.DeleteLocalBranch(run, trimmed); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			pruned++
 		}
-		pruned++
-	}
 
-	for _, ref := range filteredRemoteTracking {
-		trimmed := strings.TrimSpace(ref)
-		if !strings.HasPrefix(trimmed, cfg.Remote+"/") {
-			continue
-		}
-		branch := strings.TrimPrefix(trimmed, cfg.Remote+"/")
-		if branch == "" || strings.Contains(branch, "->") {
-			continue
-		}
-		if err := git.DeleteRemoteTrackingBranch(run, cfg.Remote, branch); err != nil {
-			if firstErr == nil {
-				firstErr = err
+		for _, ref := range filteredRemoteTracking {
+			trimmed := strings.TrimSpace(ref)
+			if !strings.HasPrefix(trimmed, cfg.Remote+"/") {
+				continue
 			}
-			continue
+			branch := strings.TrimPrefix(trimmed, cfg.Remote+"/")
+			if branch == "" || strings.Contains(branch, "->") {
+				continue
+			}
+			if err := git.DeleteRemoteTrackingBranch(run, cfg.Remote, branch); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			pruned++
 		}
-		pruned++
 	}
 
 	if doRemoteDelete {
@@ -139,6 +158,12 @@ func Clean(run *runner.Runner, cfg *config.Config, remote bool) error {
 	}
 	fmt.Printf("Pruned %d branches.\n", pruned)
 	return nil
+}
+
+// branchListingName normalizes one line of `git branch` output: it strips
+// surrounding whitespace and the "* " marker git prints for the current branch.
+func branchListingName(listed string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(listed), "* "))
 }
 
 // filterBranches removes protected, current, default, and HEAD refs from the
