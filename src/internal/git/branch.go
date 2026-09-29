@@ -76,9 +76,13 @@ func MergedBranches(run *runner.Runner, base string) ([]string, error) {
 		if strings.HasPrefix(trimmed, "* ") {
 			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "* "))
 		}
-		if trimmed != "" {
-			branches = append(branches, trimmed)
+		if trimmed == "" {
+			continue
 		}
+		if strings.Contains(trimmed, " ") {
+			continue
+		}
+		branches = append(branches, trimmed)
 	}
 	return branches, nil
 }
