@@ -13,7 +13,7 @@ import (
 )
 
 // Ship pushes the current branch to the configured remote and prints a PR URL.
-func Ship(run *runner.Runner, cfg *config.Config, force bool, noPR bool) error {
+func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error {
 	// 1. Check for in-progress rebase or merge (before branch check — rebase
 	//    pauses leave HEAD detached)
 	if err := requireNoInProgress(inspect(run)); err != nil {
@@ -58,7 +58,7 @@ func Ship(run *runner.Runner, cfg *config.Config, force bool, noPR bool) error {
 		if err := git.Fetch(run, cfg.Remote); err != nil {
 			return &cli.Error{
 				Message: fmt.Sprintf("Failed to fetch branch %q from %q.", current, cfg.Remote),
-				Hint:    "Check network connection or remote configuration.",
+				Hint:    "Check the error above; verify the remote with `git remote -v`.",
 			}
 		}
 
@@ -106,9 +106,13 @@ func Ship(run *runner.Runner, cfg *config.Config, force bool, noPR bool) error {
 
 	// 6. Push
 	if err := pushFn(); err != nil {
+		hint := "Check the error above."
+		if git.IsNonFastForward(err) {
+			hint = "Someone may have pushed since your last fetch — run gx sync and retry."
+		}
 		return &cli.Error{
 			Message: "Push rejected by remote.",
-			Hint:    "Someone may have pushed since your last fetch — run gx sync and retry.",
+			Hint:    hint,
 		}
 	}
 

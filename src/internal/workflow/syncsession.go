@@ -23,10 +23,10 @@ type syncGit interface {
 
 // prodSyncGit adapts the git package and runner to syncGit.
 type prodSyncGit struct {
-	run *runner.Runner
+	run runner.Executor
 }
 
-func newProdSyncGit(run *runner.Runner) syncGit {
+func newProdSyncGit(run runner.Executor) syncGit {
 	return &prodSyncGit{run: run}
 }
 

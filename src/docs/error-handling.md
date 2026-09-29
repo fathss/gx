@@ -40,7 +40,7 @@ return fmt.Errorf("git failed: %w", err)
 
 ```go
 // ✅ Good
-func Fetch(run *runner.Runner, remote string) error {
+func Fetch(run runner.Executor, remote string) error {
     return run.Run("fetch", remote)
 }
 
@@ -54,7 +54,7 @@ return &cli.Error{Message: "fetch failed"}
 if err := git.Fetch(run, cfg.Remote); err != nil {
     return &cli.Error{
         Message: "Failed to fetch remote.",
-        Hint:    "Check network connection or remote configuration.",
+        Hint:    "Check the error above; verify the remote with `git remote -v`.",
     }
 }
 ```

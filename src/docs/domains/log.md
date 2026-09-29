@@ -26,7 +26,7 @@ Holds information about a single commit.
 ## RecentCommits
 
 ```go
-func RecentCommits(run *runner.Runner, n int) ([]CommitInfo, error)
+func RecentCommits(run runner.Executor, n int) ([]CommitInfo, error)
 ```
 
 Returns the last `n` commits on the current branch:

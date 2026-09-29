@@ -20,7 +20,7 @@ type SyncOptions struct {
 	Skip     bool
 }
 
-func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
+func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 	sessionGit := newProdSyncGit(run)
 	verdict := inspect(run)
 
@@ -177,7 +177,7 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 		if err := git.Fetch(run, cfg.Remote); err != nil {
 			return settleRestore, &cli.Error{
 				Message: "Failed to fetch remote.",
-				Hint:    "Check network connection or remote configuration.",
+				Hint:    "Check the error above; verify the remote with `git remote -v`.",
 			}
 		}
 
@@ -316,7 +316,7 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 // autoContinueSync continues an in-progress rebase. When a gx stash is present
 // (from a previous gx sync run), the resumed session commits it after the
 // rebase completes. Only called for gx-orchestrated rebases (Q4).
-func autoContinueSync(run *runner.Runner, sessionGit syncGit) error {
+func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		fmt.Printf("Continuing rebase — applying %s...\n", info)
 	} else {
@@ -359,7 +359,7 @@ func autoContinueSync(run *runner.Runner, sessionGit syncGit) error {
 
 // autoContinueMergeSync continues a paused merge. Behaves like autoContinueSync
 // but for merges: runs git merge --continue, then commits the resumed session.
-func autoContinueMergeSync(run *runner.Runner, sessionGit syncGit) error {
+func autoContinueMergeSync(run runner.Executor, sessionGit syncGit) error {
 	fmt.Println("Continuing merge...")
 
 	if err := git.MergeContinue(run); err != nil {
@@ -387,7 +387,7 @@ func autoContinueMergeSync(run *runner.Runner, sessionGit syncGit) error {
 // provided abortFn, then commits the resumed session to restore the dirty
 // working tree. If the abort fails, returns an error without settling the
 // stash.
-func abortWithStash(run *runner.Runner, sessionGit syncGit, abortFn func(*runner.Runner) error) error {
+func abortWithStash(run runner.Executor, sessionGit syncGit, abortFn func(runner.Executor) error) error {
 	if err := abortFn(run); err != nil {
 		return &cli.Error{
 			Message: "Failed to abort the in-progress operation.",
@@ -400,7 +400,7 @@ func abortWithStash(run *runner.Runner, sessionGit syncGit, abortFn func(*runner
 // autoSkipSync skips the currently-applying commit during a gx-orchestrated
 // rebase. If the rebase is still in progress afterwards, the session stays
 // paused (stash kept). When the rebase finished, the session commits.
-func autoSkipSync(run *runner.Runner, sessionGit syncGit) error {
+func autoSkipSync(run runner.Executor, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		fmt.Printf("Skipping commit %s...\n", info)
 	} else {

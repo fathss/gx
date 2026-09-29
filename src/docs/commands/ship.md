@@ -118,14 +118,17 @@ work you haven't seen):
 ▸ git push --force-with-lease origin feat/login
 ```
 
-If the push itself fails (auth, hook rejection, `--force-with-lease` stale
-lease because someone pushed in between), `gx ship` exits with the git
-error surfaced as-is plus a hint:
+If the push itself fails, `gx ship` exits with the git error surfaced as-is.
+The hint depends on evidence: git's stderr is streamed live above, and only
+a `non-fast-forward` rejection earns the sync diagnosis — every other cause
+(auth, hooks, protected refs) stays cause-agnostic:
 
 ```
 ✗ Push rejected by remote.
 hint: Someone may have pushed since your last fetch — run gx sync and retry.
 ```
+
+Without the non-fast-forward marker the hint is `Check the error above.`
 
 ### PR URL
 

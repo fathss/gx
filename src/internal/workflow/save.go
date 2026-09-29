@@ -25,7 +25,7 @@ import (
 //   - allowSensitive: if true, skip sensitive-pattern check
 //   - allowEmpty: if true, skip empty-commit confirmation
 //   - excludePatterns: glob patterns for files to exclude from staging
-func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, patchMode bool, allowSensitive bool, allowEmpty bool, excludePatterns []string) error {
+func Save(run runner.Executor, cfg *config.Config, files []string, msg string, patchMode bool, allowSensitive bool, allowEmpty bool, excludePatterns []string) error {
 	// 1. Pre-flight: block if rebase or merge in progress
 	if err := requireNoInProgress(inspect(run)); err != nil {
 		return err
@@ -293,7 +293,7 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 
 // checkConflictMarkers runs git diff --cached --check to detect unresolved
 // conflict markers in staged files. If found, prompts the user to confirm.
-func checkConflictMarkers(run *runner.Runner) error {
+func checkConflictMarkers(run runner.Executor) error {
 	out, err := git.CheckCachedDiff(run)
 	if err == nil || out == "" {
 		return nil

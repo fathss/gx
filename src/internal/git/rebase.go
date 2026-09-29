@@ -8,25 +8,25 @@ import (
 	"github.com/fathss/gx/internal/runner"
 )
 
-func Rebase(run *runner.Runner, branch string) error {
+func Rebase(run runner.Executor, branch string) error {
 	return run.Run("rebase", branch)
 }
 
 // RebaseAbort aborts an in-progress rebase and restores the original branch.
-func RebaseAbort(run *runner.Runner) error {
+func RebaseAbort(run runner.Executor) error {
 	return run.Run("rebase", "--abort")
 }
 
 // RebaseContinue continues an in-progress rebase after conflicts are resolved.
 // GIT_EDITOR=true suppresses the editor prompt — the original commit message
 // from the replayed commit is reused automatically.
-func RebaseContinue(run *runner.Runner) error {
+func RebaseContinue(run runner.Executor) error {
 	return run.RunWithEnv([]string{"GIT_EDITOR=true"}, "rebase", "--continue")
 }
 
 // RebaseSkip skips the currently-applying commit during a rebase.
 // GIT_EDITOR=true suppresses the editor prompt.
-func RebaseSkip(run *runner.Runner) error {
+func RebaseSkip(run runner.Executor) error {
 	return run.RunWithEnv([]string{"GIT_EDITOR=true"}, "rebase", "--skip")
 }
 
@@ -35,7 +35,7 @@ func RebaseSkip(run *runner.Runner) error {
 // reliable during all rebase phases (editing, applying, paused, stopped).
 // Does NOT use --show-current-patch which returns false negatives during
 // interactive edit pauses, --skip on last patch, or --stop.
-func IsRebaseInProgress(run *runner.Runner) bool {
+func IsRebaseInProgress(run runner.Executor) bool {
 	gitDir, err := run.Output("rev-parse", "--git-dir")
 	if err != nil {
 		return false
@@ -58,7 +58,7 @@ func IsRebaseInProgress(run *runner.Runner) bool {
 // Handles two git output formats:
 //   - merge backend (default since git 2.26): "commit <hash>" + indented subject
 //   - apply backend (older git):                "From <hash>" + "Subject: [PATCH] <subject>"
-func CurrentRebasePatchInfo(run *runner.Runner) string {
+func CurrentRebasePatchInfo(run runner.Executor) string {
 	out, err := run.Output("rebase", "--show-current-patch")
 	if err != nil || out == "" {
 		return ""
@@ -118,4 +118,3 @@ func CurrentRebasePatchInfo(run *runner.Runner) string {
 	}
 	return subject
 }
-

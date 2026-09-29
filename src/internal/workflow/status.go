@@ -20,7 +20,7 @@ import (
 //  5. Stash count
 //  6. Ahead/behind the upstream
 //  7. Recent commits (last 5)
-func Status(run *runner.Runner, cfg *config.Config) error {
+func Status(run runner.Executor, cfg *config.Config) error {
 	// 1. Branch / HEAD state
 	headState, err := git.GetHEADState(run)
 	if err != nil {
@@ -203,7 +203,7 @@ func totalStaged(staged map[string][]string) int {
 
 // upstreamRef returns the full upstream tracking ref for the current branch,
 // e.g. "origin/feature/test". Returns "" if no upstream is configured.
-func upstreamRef(run *runner.Runner, branch string) string {
+func upstreamRef(run runner.Executor, branch string) string {
 	out, err := run.Output("rev-parse", "--abbrev-ref", branch+"@{upstream}")
 	if err != nil {
 		return ""

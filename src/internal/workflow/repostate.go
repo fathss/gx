@@ -41,7 +41,7 @@ func classify(rebase, merge, gxStash bool) qVerdict {
 
 // inspect reads the three git signals and classifies them. Trivial glue —
 // callers hoist a single call to function entry.
-func inspect(run *runner.Runner) qVerdict {
+func inspect(run runner.Executor) qVerdict {
 	return classify(
 		git.IsRebaseInProgress(run),
 		git.IsMergeInProgress(run),

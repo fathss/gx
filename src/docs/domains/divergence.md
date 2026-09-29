@@ -13,7 +13,7 @@ divergence check.
 ## AheadBehind
 
 ```go
-func AheadBehind(run *runner.Runner, remote, branch string) (ahead, behind int, err error)
+func AheadBehind(run runner.Executor, remote, branch string) (ahead, behind int, err error)
 ```
 
 Returns the number of commits the local branch is ahead of and behind its
@@ -37,8 +37,8 @@ range — the remote) or `>` (right side — HEAD), and `--count` emits one
 ### Parsing
 
 The output is split with `strings.Fields` (whitespace-split), **not**
-fixed-width substrings — `runner.Output` trims leading whitespace of the full
-output, so a fixed-width slice of the left column would be corrupted.
+fixed-width substrings — the runner right-trims trailing line breaks only,
+so `Fields` is the robust choice regardless of tab/space separation.
 
 | Edge case | Behaviour |
 |---|---|

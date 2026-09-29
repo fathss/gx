@@ -57,6 +57,9 @@ Each layer has a specific job and **must not** reach across boundaries.
 **Can:**
 
 - Execute `git` subprocesses
+- Expose the `Executor` interface (`Run`, `RunWithEnv`, `Output`, `CombinedOutput`, `Warn`, `Warnf`) — implemented by `*Runner` in production and `Fake` in tests
+- Wrap failures in `CommandError{Args, ExitCode, Stderr}` so workflows can quote git's real cause (stderr is both streamed live and captured)
+- Right-trim captured output (trailing line breaks only — leading whitespace is significant)
 - Log verbose output when `--verbose` is set
 - Pipe stdout/stderr to the terminal
 
@@ -90,9 +93,9 @@ Each layer has a specific job and **must not** reach across boundaries.
 ## Error handling flow
 
 ```
-runner  →  raw exec errors (never wrapped)
+runner  →  CommandError{Args, ExitCode, Stderr} for failed git commands (infrastructure errors pass through unwrapped)
   ↓
-git     →  raw git errors (never wrapped, never creates cli.Error)
+git     →  raw git errors (never wrapped further, never creates cli.Error)
   ↓
 workflow →  cli.Error{Message, Hint}  ← every external failure becomes this
   ↓
@@ -174,11 +177,11 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 | `merge.go`      | `Merge`, `IsMergeInProgress`, `MergeContinue`, `MergeAbort`, `ConflictedFiles`                                                                                                              |
 | `patterns.go`   | `MatchSensitivePatterns`, `FilterExcluded`, `SanitizePatterns`                                                                                                                              |
 | `rebase.go`     | `Rebase`, `RebaseAbort`, `RebaseContinue`, `RebaseSkip`, `IsRebaseInProgress`, `CurrentRebasePatchInfo`                                                                                     |
-| `remote.go`     | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `HasUpstream`, `RemoteURL`, `DeleteRemoteBranch`               |
+| `remote.go`     | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `HasUpstream`, `RemoteURL`, `DeleteRemoteBranch`, `IsNonFastForward` |
 | `repository.go` | `IsRepository`                                                                                                                                                                              |
 | `stage.go`      | `AddAll`, `Add`, `AddPatch`                                                                                                                                                                 |
 | `stash.go`      | `StashList`, `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash`                                                                                           |
-| `status.go`     | `Status`, `NonEmptyStatus`, `UntrackedFiles`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus`                                                      |
+| `status.go`     | `Status`, `NonEmptyStatus`, `SubmodulePaths`, `GetParsedStatus`, `parsePorcelain`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus`                                                        |
 
 ---
 

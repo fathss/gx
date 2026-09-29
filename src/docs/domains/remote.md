@@ -18,7 +18,7 @@ Update remote-tracking refs without modifying the working tree.
 | DNS failure | Hostname can't be resolved. |
 
 **Workflow message:** "Failed to fetch remote."  
-**Hint:** "Check network connection or remote configuration."
+**Hint:** "Check the error above; verify the remote with `git remote -v`." — advice only; git's stderr (already streamed) carries the actual cause.
 
 ---
 

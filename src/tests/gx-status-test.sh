@@ -431,7 +431,7 @@ test_16_verbose() {
     run_gx status --verbose
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "verbose shows git diff" "▸ git diff"
+    assert_output_contains "verbose shows git status" "▸ git status"
 }
 
 # ======================================================================

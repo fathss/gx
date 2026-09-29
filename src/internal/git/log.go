@@ -16,7 +16,7 @@ type CommitInfo struct {
 
 // RecentCommits returns the last n commits on the current branch.
 // Returns an empty slice if there are no commits.
-func RecentCommits(run *runner.Runner, n int) ([]CommitInfo, error) {
+func RecentCommits(run runner.Executor, n int) ([]CommitInfo, error) {
 	format := "%h|||%ar|||%s"
 	out, err := run.Output("log", fmt.Sprintf("-n %d", n), fmt.Sprintf("--format=%s", format))
 	if err != nil || out == "" {

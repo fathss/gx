@@ -87,7 +87,7 @@ test_04_remote_offline() {
 
     assert_exit_code "exits non-zero" 1
     assert_output_contains "friendly fetch error" "fetch remote"
-    assert_output_contains "hint about network" "Check network"
+    assert_output_contains "hint about remote" "verify the remote"
 }
 
 # ======================================================================

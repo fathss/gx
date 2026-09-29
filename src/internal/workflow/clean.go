@@ -15,12 +15,12 @@ import (
 // remote-tracking refs merged into the relevant base. With remote==true it
 // prompts a second time before deleting remote branches. With yes==true both
 // prompts are skipped and every candidate is deleted.
-func Clean(run *runner.Runner, cfg *config.Config, remote, yes bool) error {
+func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	// 1. Fetch from remote so merged decision reflects current remote state.
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
 			Message: fmt.Sprintf("Failed to fetch from %q.", cfg.Remote),
-			Hint:    "Check network connection or remote configuration.",
+			Hint:    "Check the error above; verify the remote with `git remote -v`.",
 		}
 	}
 

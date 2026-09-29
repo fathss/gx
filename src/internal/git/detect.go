@@ -9,7 +9,7 @@ import (
 
 // DetectRemote returns the remote tracking the current branch, or the first
 // configured remote. Returns an error if no remotes are configured.
-func DetectRemote(run *runner.Runner) (string, error) {
+func DetectRemote(run runner.Executor) (string, error) {
 	branch, err := run.Output("branch", "--show-current")
 	if err == nil && branch != "" {
 		remote, err := run.Output("config", "branch."+branch+".remote")
@@ -32,7 +32,7 @@ func DetectRemote(run *runner.Runner) (string, error) {
 // DetectDefaultBranch detects the remote's HEAD branch. Tries:
 //  1. <remote>/HEAD symbolic ref (local, set by clone)
 //  2. Common branch names: main, master, develop
-func DetectDefaultBranch(run *runner.Runner, remote string) (string, error) {
+func DetectDefaultBranch(run runner.Executor, remote string) (string, error) {
 	ref, err := run.Output("rev-parse", "--abbrev-ref", remote+"/HEAD")
 	if err == nil && ref != "" {
 		branch := strings.TrimPrefix(ref, remote+"/")
