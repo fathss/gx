@@ -27,17 +27,8 @@ import (
 //   - excludePatterns: glob patterns for files to exclude from staging
 func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, patchMode bool, allowSensitive bool, allowEmpty bool, excludePatterns []string) error {
 	// 1. Pre-flight: block if rebase or merge in progress
-	if git.IsRebaseInProgress(run) {
-		return &cli.Error{
-			Message: "A rebase is already in progress.",
-			Hint:    "Resolve or abort the rebase first.\nUse gx sync --continue or git rebase --abort/--continue.",
-		}
-	}
-	if git.IsMergeInProgress(run) {
-		return &cli.Error{
-			Message: "A merge is already in progress.",
-			Hint:    "Resolve or abort the merge first.\nUse gx sync --continue or git merge --abort/--continue.",
-		}
+	if err := requireNoInProgress(inspect(run)); err != nil {
+		return err
 	}
 
 	// 2. Determine which files to stage

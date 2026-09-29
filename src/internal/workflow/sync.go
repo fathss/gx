@@ -21,40 +21,37 @@ type SyncOptions struct {
 }
 
 func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
-	sg := newProdSyncGit(run)
+	sessionGit := newProdSyncGit(run)
+	verdict := inspect(run)
 
 	// --abort: abort in-progress rebase or merge, settle the gx stash if present.
 	// Only works for gx-orchestrated operations (has gx stash). Manual
 	// rebases/merges block with a message telling the user to use git directly.
 	if opts.Abort {
-		rebaseInProgress := git.IsRebaseInProgress(run)
-		mergeInProgress := git.IsMergeInProgress(run)
-		hasGXStash := git.HasGXStash(run)
-
-		switch {
-		case rebaseInProgress && !hasGXStash:
+		switch verdict {
+		case q3ManualRebase:
 			// Q3: manual rebase — gx sync only manages its own operations
 			return &cli.Error{
 				Message: "A rebase is already in progress.",
 				Hint:    "gx sync only manages its own sync operations.\nUse git rebase --abort directly.",
 			}
 
-		case rebaseInProgress && hasGXStash:
+		case q4GXRebase:
 			// Q4: gx-orchestrated rebase — abort, then settle
 			fmt.Println("Aborting rebase...")
-			return abortWithStash(run, sg, git.RebaseAbort)
+			return abortWithStash(run, sessionGit, git.RebaseAbort)
 
-		case mergeInProgress && !hasGXStash:
+		case q5ManualMerge:
 			// Q5: manual merge — gx sync only manages its own operations
 			return &cli.Error{
 				Message: "A merge is already in progress.",
 				Hint:    "gx sync only manages its own sync operations.\nUse git merge --abort directly.",
 			}
 
-		case mergeInProgress && hasGXStash:
+		case q6GXMerge:
 			// Q6: gx-orchestrated merge — abort, then settle
 			fmt.Println("Aborting merge...")
-			return abortWithStash(run, sg, git.MergeAbort)
+			return abortWithStash(run, sessionGit, git.MergeAbort)
 
 		default:
 			// Q1 or Q2: nothing to abort
@@ -73,7 +70,9 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 		}
 	}
 
-	// 3. State machine for rebase/merge + stash interactions.
+	// 3. State machine for rebase/merge + stash interactions — classified
+	// once by inspect() (the Q-table lives in repostate.go); this switch is
+	// the interpretation for gx sync.
 	//
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
 	//    |   | RebaseInProgress | MergeInProgress  | HasGXStash    | Behavior                                |
@@ -85,25 +84,21 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 	//    | 5 | false            | true             | false         | block: manual merge (--continue denied)  |
 	//    | 6 | false            | true             | true          | block: gx merge (--continue allowed)     |
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
-	rebaseInProgress := git.IsRebaseInProgress(run)
-	mergeInProgress := git.IsMergeInProgress(run)
-	hasGXStash := git.HasGXStash(run)
-
-	switch {
-	case rebaseInProgress && hasGXStash:
+	switch verdict {
+	case q4GXRebase:
 		// Q4: gx-orchestrated rebase — --continue resumes, --skip skips, plain blocks
 		if opts.Skip {
-			return autoSkipSync(run, sg)
+			return autoSkipSync(run, sessionGit)
 		}
 		if opts.Continue {
-			return autoContinueSync(run, sg)
+			return autoContinueSync(run, sessionGit)
 		}
 		return &cli.Error{
 			Message: "A rebase is already in progress.",
 			Hint:    "Run gx sync --continue to resume, gx sync --skip to skip, or gx sync --abort to cancel.",
 		}
 
-	case mergeInProgress && hasGXStash:
+	case q6GXMerge:
 		// Q6: gx-orchestrated merge — --continue resumes, plain blocks
 		if opts.Skip {
 			return &cli.Error{
@@ -112,14 +107,14 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 			}
 		}
 		if opts.Continue {
-			return autoContinueMergeSync(run, sg)
+			return autoContinueMergeSync(run, sessionGit)
 		}
 		return &cli.Error{
 			Message: "A merge is already in progress.",
 			Hint:    "Run gx sync --continue to resume, or gx sync --abort to cancel.",
 		}
 
-	case rebaseInProgress && !hasGXStash:
+	case q3ManualRebase:
 		// Q3: manual rebase — gx sync only manages its own operations
 		if opts.Skip {
 			return &cli.Error{
@@ -132,25 +127,27 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 			Hint:    "gx sync only manages its own sync operations.\nUse git rebase --continue, --skip, or --abort directly.",
 		}
 
-	case mergeInProgress && !hasGXStash:
+	case q5ManualMerge:
 		// Q5: manual merge — gx sync only manages its own operations
 		return &cli.Error{
 			Message: "A merge is already in progress.",
 			Hint:    "gx sync only manages its own sync operations.\nUse git merge --continue or --abort directly.",
 		}
 
-	case !rebaseInProgress && !mergeInProgress && (opts.Continue || opts.Skip):
-		// --continue or --skip but nothing paused
-		// Issue 09c: check if rebase already completed
-		return &cli.Error{
-			Message: "Nothing to continue. Rebase appears to have completed already.",
-			Hint:    "Run git status to verify the state, then gx sync to start a fresh sync.",
+	case q1Idle, q2OrphanStash:
+		if opts.Continue || opts.Skip {
+			// --continue or --skip but nothing paused
+			// Issue 09c: check if rebase already completed
+			return &cli.Error{
+				Message: "Nothing to continue. Rebase appears to have completed already.",
+				Hint:    "Run git status to verify the state, then gx sync to start a fresh sync.",
+			}
 		}
-
-	case !rebaseInProgress && !mergeInProgress && hasGXStash:
-		// Q2: orphaned gx restore — settle the adopted session, then proceed
-		if err := resume(sg).settle(settleRestore); err != nil {
-			return err
+		if verdict == q2OrphanStash {
+			// Q2: orphaned gx restore — settle the adopted session, then proceed
+			if err := resume(sessionGit).settle(settleRestore); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -163,14 +160,14 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 	}
 
 	// 4. Acquire the session: stash the dirty working tree (skipped when clean).
-	s, err := begin(sg, current)
+	session, err := begin(sessionGit, current)
 	if err != nil {
 		return err
 	}
 
 	// 5–8. Act phase. Every exit settles through the session: an error
 	// restores the stash, a conflict pause keeps it, success commits it.
-	return s.run(func() (settle, error) {
+	return session.run(func() (settle, error) {
 		if !git.RemoteExists(run, cfg.Remote) {
 			return settleRestore, &cli.Error{
 				Message: fmt.Sprintf("Remote '%s' not found.", cfg.Remote),
@@ -272,7 +269,7 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
 					}
 					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
-					if s.acquired {
+					if session.acquired {
 						hint += " Your changes were stashed and will be restored automatically."
 					}
 					return settlePause, &cli.Error{
@@ -297,7 +294,7 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
 					}
 					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
-					if s.acquired {
+					if session.acquired {
 						hint += " Your changes were stashed and will be restored automatically."
 					}
 					return settlePause, &cli.Error{
@@ -319,7 +316,7 @@ func Sync(run *runner.Runner, cfg *config.Config, opts SyncOptions) error {
 // autoContinueSync continues an in-progress rebase. When a gx stash is present
 // (from a previous gx sync run), the resumed session commits it after the
 // rebase completes. Only called for gx-orchestrated rebases (Q4).
-func autoContinueSync(run *runner.Runner, sg syncGit) error {
+func autoContinueSync(run *runner.Runner, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		fmt.Printf("Continuing rebase — applying %s...\n", info)
 	} else {
@@ -357,12 +354,12 @@ func autoContinueSync(run *runner.Runner, sg syncGit) error {
 	}
 
 	// Rebase succeeded — commit the resumed session (pop + orphan cleanup)
-	return resume(sg).settle(settleCommit)
+	return resume(sessionGit).settle(settleCommit)
 }
 
 // autoContinueMergeSync continues a paused merge. Behaves like autoContinueSync
 // but for merges: runs git merge --continue, then commits the resumed session.
-func autoContinueMergeSync(run *runner.Runner, sg syncGit) error {
+func autoContinueMergeSync(run *runner.Runner, sessionGit syncGit) error {
 	fmt.Println("Continuing merge...")
 
 	if err := git.MergeContinue(run); err != nil {
@@ -383,27 +380,27 @@ func autoContinueMergeSync(run *runner.Runner, sg syncGit) error {
 	}
 
 	// Merge succeeded — commit the resumed session (pop + orphan cleanup)
-	return resume(sg).settle(settleCommit)
+	return resume(sessionGit).settle(settleCommit)
 }
 
 // abortWithStash aborts an in-progress operation (rebase or merge) via the
 // provided abortFn, then commits the resumed session to restore the dirty
 // working tree. If the abort fails, returns an error without settling the
 // stash.
-func abortWithStash(run *runner.Runner, sg syncGit, abortFn func(*runner.Runner) error) error {
+func abortWithStash(run *runner.Runner, sessionGit syncGit, abortFn func(*runner.Runner) error) error {
 	if err := abortFn(run); err != nil {
 		return &cli.Error{
 			Message: "Failed to abort the in-progress operation.",
 			Hint:    "Check git status and resolve manually.",
 		}
 	}
-	return resume(sg).settle(settleCommit)
+	return resume(sessionGit).settle(settleCommit)
 }
 
 // autoSkipSync skips the currently-applying commit during a gx-orchestrated
 // rebase. If the rebase is still in progress afterwards, the session stays
 // paused (stash kept). When the rebase finished, the session commits.
-func autoSkipSync(run *runner.Runner, sg syncGit) error {
+func autoSkipSync(run *runner.Runner, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		fmt.Printf("Skipping commit %s...\n", info)
 	} else {
@@ -434,5 +431,5 @@ func autoSkipSync(run *runner.Runner, sg syncGit) error {
 
 	// Rebase finished after skip — commit the resumed session
 	fmt.Println("Rebase completed.")
-	return resume(sg).settle(settleCommit)
+	return resume(sessionGit).settle(settleCommit)
 }

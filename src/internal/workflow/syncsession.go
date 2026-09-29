@@ -30,12 +30,19 @@ func newProdSyncGit(run *runner.Runner) syncGit {
 	return &prodSyncGit{run: run}
 }
 
-func (p *prodSyncGit) StashPush(label string) error { return git.StashPush(p.run, label) }
-func (p *prodSyncGit) StashPop() error              { return git.StashPop(p.run) }
-func (p *prodSyncGit) DropGXStash() error           { return git.DropGXStash(p.run) }
-func (p *prodSyncGit) IsClean() bool                { return git.IsClean(p.run) }
-func (p *prodSyncGit) HasGXStash() bool             { return git.HasGXStash(p.run) }
-func (p *prodSyncGit) Warnf(msg, hint string)       { p.run.Warnf(msg, hint) }
+func (adapter *prodSyncGit) StashPush(label string) error {
+	return git.StashPush(adapter.run, label)
+}
+
+func (adapter *prodSyncGit) StashPop() error { return git.StashPop(adapter.run) }
+
+func (adapter *prodSyncGit) DropGXStash() error { return git.DropGXStash(adapter.run) }
+
+func (adapter *prodSyncGit) IsClean() bool { return git.IsClean(adapter.run) }
+
+func (adapter *prodSyncGit) HasGXStash() bool { return git.HasGXStash(adapter.run) }
+
+func (adapter *prodSyncGit) Warnf(msg, hint string) { adapter.run.Warnf(msg, hint) }
 
 // settle is how a sync session closes (see CONTEXT.md).
 type settle int
@@ -60,28 +67,28 @@ type syncSession struct {
 
 // begin acquires a session: a clean tree stashes nothing; a dirty tree is
 // stashed under a gx-sync/ label so settle can later restore or commit it.
-func begin(g syncGit, branch string) (*syncSession, error) {
-	s := &syncSession{git: g}
-	if g.IsClean() {
-		return s, nil
+func begin(sessionGit syncGit, branch string) (*syncSession, error) {
+	session := &syncSession{git: sessionGit}
+	if sessionGit.IsClean() {
+		return session, nil
 	}
 	label := fmt.Sprintf("%s%s/%d", git.SyncStashPrefix, branch, time.Now().Unix())
 	fmt.Println("Stashing local changes...")
-	if err := g.StashPush(label); err != nil {
+	if err := sessionGit.StashPush(label); err != nil {
 		return nil, &cli.Error{
 			Message: "Failed to stash local changes.",
 			Hint:    "Commit or discard your changes manually.",
 		}
 	}
-	s.acquired = true
-	return s, nil
+	session.acquired = true
+	return session, nil
 }
 
 // resume adopts an interrupted sync session: its gx-sync/ stash (if any)
 // becomes this session's to settle. Used by --continue, --skip, and --abort,
 // which run in a fresh process with no live session state.
-func resume(g syncGit) *syncSession {
-	return &syncSession{git: g, acquired: g.HasGXStash()}
+func resume(sessionGit syncGit) *syncSession {
+	return &syncSession{git: sessionGit, acquired: sessionGit.HasGXStash()}
 }
 
 // run executes the act-phase fn and settles the session exactly once:
@@ -94,58 +101,58 @@ func resume(g syncGit) *syncSession {
 // hand-placed restore calls is now the only thing run does. If restoring
 // itself fails, the failure is surfaced as a warning so fn's original error
 // still reaches the caller.
-func (s *syncSession) run(fn func() (settle, error)) error {
+func (session *syncSession) run(fn func() (settle, error)) error {
 	outcome, err := fn()
 	if err != nil && outcome != settlePause {
-		if serr := s.settle(settleRestore); serr != nil {
-			if ce, ok := serr.(*cli.Error); ok {
-				s.git.Warnf(ce.Message, ce.Hint)
+		if settleErr := session.settle(settleRestore); settleErr != nil {
+			if conflictErr, ok := settleErr.(*cli.Error); ok {
+				session.git.Warnf(conflictErr.Message, conflictErr.Hint)
 			}
 		}
 		return err
 	}
-	if serr := s.settle(outcome); serr != nil {
-		return serr
+	if settleErr := session.settle(outcome); settleErr != nil {
+		return settleErr
 	}
 	return err
 }
 
 // settle closes the session. Settle copy (the announcement, the conflict
 // error) lives here and nowhere else.
-func (s *syncSession) settle(out settle) error {
-	switch out {
+func (session *syncSession) settle(outcome settle) error {
+	switch outcome {
 	case settlePause:
 		return nil
 
 	case settleCommit:
-		if s.acquired {
-			if err := s.pop(); err != nil {
+		if session.acquired {
+			if err := session.pop(); err != nil {
 				return err
 			}
-			s.acquired = false
+			session.acquired = false
 		}
-		if err := s.git.DropGXStash(); err != nil {
-			s.git.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
+		if err := session.git.DropGXStash(); err != nil {
+			session.git.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
 		}
 		return nil
 
 	default: // settleRestore
-		if !s.acquired {
+		if !session.acquired {
 			return nil
 		}
-		if err := s.pop(); err != nil {
+		if err := session.pop(); err != nil {
 			return err
 		}
-		s.acquired = false
+		session.acquired = false
 		return nil
 	}
 }
 
 // pop announces the restore and pops the gx-sync/ stash. A pop conflict
 // returns the standard settle error — the single place that message exists.
-func (s *syncSession) pop() error {
+func (session *syncSession) pop() error {
 	fmt.Println("Restoring stashed changes...")
-	if err := s.git.StashPop(); err != nil {
+	if err := session.git.StashPop(); err != nil {
 		return &cli.Error{
 			Message: "Stash pop failed — conflicts detected.",
 			Hint:    "Resolve the conflicts above, then run: git stash drop",

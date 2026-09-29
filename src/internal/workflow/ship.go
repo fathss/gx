@@ -16,17 +16,8 @@ import (
 func Ship(run *runner.Runner, cfg *config.Config, force bool, noPR bool) error {
 	// 1. Check for in-progress rebase or merge (before branch check — rebase
 	//    pauses leave HEAD detached)
-	if git.IsRebaseInProgress(run) {
-		return &cli.Error{
-			Message: "A rebase is already in progress.",
-			Hint:    "Resolve or abort the rebase first.\nUse gx sync --continue or git rebase --abort/--continue.",
-		}
-	}
-	if git.IsMergeInProgress(run) {
-		return &cli.Error{
-			Message: "A merge is already in progress.",
-			Hint:    "Resolve or abort the merge first.\nUse gx sync --continue or git merge --abort/--continue.",
-		}
+	if err := requireNoInProgress(inspect(run)); err != nil {
+		return err
 	}
 
 	// 2. Determine current branch
