@@ -16,6 +16,9 @@ import (
 // prompts a second time before deleting remote branches. With yes==true both
 // prompts are skipped and every candidate is deleted.
 func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
+	// --yes is prompter vocabulary: seat it once for both confirmations.
+	prompts.autoYes = yes
+
 	// 1. Fetch from remote so merged decision reflects current remote state.
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
@@ -64,7 +67,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 		for _, br := range filteredRemoteTracking {
 			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 		}
-		confirmed, err := confirm(b.String(), yes)
+		confirmed, err := prompts.Confirm(b.String())
 		if err != nil {
 			return err
 		}
@@ -78,7 +81,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 		for _, br := range remoteToDelete {
 			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 		}
-		confirmed, err := confirm(b.String(), yes)
+		confirmed, err := prompts.Confirm(b.String())
 		if err != nil {
 			return err
 		}

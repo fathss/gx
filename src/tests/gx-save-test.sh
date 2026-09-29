@@ -11,22 +11,6 @@ source "$SCRIPT_DIR/lib.sh"
 # Helpers
 # ======================================================================
 
-# run_gx_stdin runs gx with a given stdin string and captures output.
-# Usage: run_gx_stdin <stdin> <args...>
-run_gx_stdin() {
-    local stdin_input="$1"
-    shift
-    local saved_opts
-    saved_opts=$(set +o)
-    set +e
-    (
-        cd "${GX_RUN_DIR:-$TEST_DIR}" >/dev/null 2>&1 || exit 1
-        echo "$stdin_input" | "$GX_BIN" "$@"
-    ) >"$TEST_ROOT/gx-out.txt" 2>&1
-    GX_STATUS=$?
-    eval "$saved_opts"
-    GX_OUTPUT=$(cat "$TEST_ROOT/gx-out.txt")
-}
 
 # setup_save_repo creates a basic repo with develop branch and a feature branch
 # with a modified tracked file. Optionally accepts extra files to create.

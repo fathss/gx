@@ -157,7 +157,8 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 | `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`       |
 | `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the recover invariant (`syncGit` seam + `prodSyncGit` adapter) |
 | `internal/workflow/repostate.go` | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspect()`, `requireNoInProgress()` guard shared by save/ship |
-| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit, `promptConfirm()`                                                             |
+| `internal/workflow/prompt.go`    | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr |
+| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit                                                                              |
 | `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                               |
 | `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot (upstream = configured remote via `CheckDivergence`)                                                 |
 | `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                               |
