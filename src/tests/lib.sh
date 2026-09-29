@@ -101,9 +101,9 @@ setup_base_repo() {
 # Config
 # ======================================================================
 write_config() {
-    local branch="${1:-develop}" remote="${2:-origin}" strategy="${3:-rebase}"
+    local branch="$1" remote="$2" strategy="$3"
     mkdir -p "$TEST_DIR/.gx"
-    printf '{"remote":"%s","defaultBranch":"%s","syncStrategy":"%s","sensitivePatterns":[".env","*.pem","*secret*","*.key"]}\n' \
+    printf '{"remote":"%s","defaultBranch":"%s","syncStrategy":"%s"}\n' \
         "$remote" "$branch" "$strategy" > "$CONFIG_FILE"
 }
 

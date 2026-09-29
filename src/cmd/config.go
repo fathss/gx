@@ -14,8 +14,8 @@ var (
 )
 
 var configCmd = &cobra.Command{
-	Use:   "config [<key> [<value>]]",
-	Short: "Get or set persistent configuration values",
+	Use:         "config [<key> [<value>]]",
+	Short:       "Get or set persistent configuration values",
 	Annotations: map[string]string{"no_config": ""},
 	Long: `Manage the .gx/config configuration file.
 
@@ -120,7 +120,7 @@ Examples:
 }
 
 func printConfig() error {
-	for _, key := range []string{"remote", "defaultBranch", "syncStrategy", "sensitivePatterns", "protectedBranches"} {
+	for _, key := range config.Keys() {
 		val, err := config.Get(key)
 		if err != nil {
 			return &cli.Error{

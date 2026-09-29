@@ -36,6 +36,7 @@ func Default() *Config {
 		Remote:            "origin",
 		DefaultBranch:     "develop",
 		SyncStrategy:      "rebase",
+		SensitivePatterns: DefaultSensitivePatterns,
 		ProtectedBranches: DefaultProtectedBranches,
 	}
 }
@@ -67,25 +68,15 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	// Validate syncStrategy: warn and reset to "rebase" if invalid
-	if cfg.SyncStrategy != "" && cfg.SyncStrategy != "rebase" && cfg.SyncStrategy != "merge" {
+	// Warn and reset persisted values outside the syncStrategy domain.
+	if cfg.SyncStrategy != "" && !fieldAllows(syncStrategies, cfg.SyncStrategy) {
 		fmt.Fprintf(os.Stderr, "Warning: .gx/config has invalid syncStrategy '%s'. Resetting to 'rebase'.\n", cfg.SyncStrategy)
 		cfg.SyncStrategy = "rebase"
 	}
 
-	if cfg.Remote == "" {
-		cfg.Remote = "origin"
-	}
-	if cfg.DefaultBranch == "" {
-		cfg.DefaultBranch = "develop"
-	}
-	if cfg.SyncStrategy == "" {
-		cfg.SyncStrategy = "rebase"
-	}
-
-	if len(cfg.ProtectedBranches) == 0 {
-		cfg.ProtectedBranches = DefaultProtectedBranches
-	}
+	// Every field the file left empty falls back to its default, through
+	// the registry accessors.
+	applyDefaults(cfg, Default())
 
 	return cfg, nil
 }
@@ -109,11 +100,10 @@ func Exists() bool {
 	return err == nil
 }
 
-// Set writes a config key to .gx/config. Supported keys:
-// remote, defaultBranch, syncStrategy, sensitivePatterns.
-// The sensitivePatterns value is a JSON string array, e.g. '["*.tfvars"]'.
-func Set(key, value string) error {
-	field, ok := configFields[key]
+// Set writes a config key to .gx/config. The key set and per-key
+// validation live in the registry (see Keys()).
+func Set(key string, value string) error {
+	field, ok := lookupField(key)
 	if !ok {
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -123,47 +113,21 @@ func Set(key, value string) error {
 		return fmt.Errorf("%s must not be empty", key)
 	}
 
-	if key == "syncStrategy" {
-		v := strings.ToLower(value)
-		if v != "rebase" && v != "merge" {
-			return fmt.Errorf("syncStrategy must be 'rebase' or 'merge', got '%s'", value)
-		}
-		value = v
-	}
-
 	cfg, err := Load()
 	if err != nil {
 		return err
 	}
-
-	switch field {
-	case "remote":
-		cfg.Remote = value
-	case "defaultBranch":
-		cfg.DefaultBranch = value
-	case "syncStrategy":
-		cfg.SyncStrategy = value
-	case "sensitivePatterns":
-		var patterns []string
-		if err := json.Unmarshal([]byte(value), &patterns); err != nil {
-			return fmt.Errorf("sensitivePatterns must be a JSON string array, got '%s'", value)
-		}
-		cfg.SensitivePatterns = patterns
-	case "protectedBranches":
-		var branches []string
-		if err := json.Unmarshal([]byte(value), &branches); err != nil {
-			return fmt.Errorf("protectedBranches must be a JSON string array, got '%s'", value)
-		}
-		cfg.ProtectedBranches = branches
+	if err := field.set(cfg, value); err != nil {
+		return err
 	}
 
 	return Save(cfg)
 }
 
-// Get returns the value of a config key. Returns empty string for unknown keys.
-// Supported keys: remote, defaultBranch, syncStrategy, sensitivePatterns.
+// Get returns the value of a config key. Returns an error for unknown
+// keys; the key set is the registry (see Keys()).
 func Get(key string) (string, error) {
-	field, ok := configFields[key]
+	field, ok := lookupField(key)
 	if !ok {
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}
@@ -172,34 +136,7 @@ func Get(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	switch field {
-	case "remote":
-		return cfg.Remote, nil
-	case "defaultBranch":
-		return cfg.DefaultBranch, nil
-	case "syncStrategy":
-		return cfg.SyncStrategy, nil
-	case "sensitivePatterns":
-		if len(cfg.SensitivePatterns) == 0 {
-			return "[]", nil
-		}
-		data, err := json.Marshal(cfg.SensitivePatterns)
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
-	case "protectedBranches":
-		if len(cfg.ProtectedBranches) == 0 {
-			return "[]", nil
-		}
-		data, err := json.Marshal(cfg.ProtectedBranches)
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
-	}
-	return "", nil
+	return field.get(cfg), nil
 }
 
 // AppendSensitivePatterns appends patterns to the existing sensitivePatterns list,
@@ -242,12 +179,4 @@ func AppendProtectedBranches(branches []string) error {
 	}
 	cfg.ProtectedBranches = append(cfg.ProtectedBranches, branches...)
 	return Save(cfg)
-}
-
-var configFields = map[string]string{
-	"remote":            "remote",
-	"defaultBranch":     "defaultBranch",
-	"syncStrategy":      "syncStrategy",
-	"sensitivePatterns": "sensitivePatterns",
-	"protectedBranches": "protectedBranches",
 }

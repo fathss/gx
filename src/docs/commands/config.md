@@ -39,12 +39,13 @@ Appending is the default; `--overwrite` replaces the entire list.
 | `remote`            | `origin`                                            | Remote name to fetch from                        |
 | `defaultBranch`     | `develop`                                           | Branch to sync against                           |
 | `syncStrategy`      | `rebase`                                            | `rebase` or `merge`                              |
-| `sensitivePatterns` | `[]` (seeded by `gx init`)                          | List key — variadic positional values            |
+| `sensitivePatterns` | `[".env", "*.pem", "*secret*", "*.key"]`             | List key — variadic positional values            |
 | `protectedBranches` | `["main", "master", "develop"]`                     | List key — variadic positional values            |
 
 `gx init` seeds `sensitivePatterns` with the default patterns (`.env`,
-`*.pem`, `*secret*`, `*.key`). Reading a key with no stored list prints
-`[]`.
+`*.pem`, `*secret*`, `*.key`). An absent or empty list falls back to those
+defaults whenever the config is loaded, so reading the key always prints
+them — the same rule every other key follows.
 
 ## List keys
 

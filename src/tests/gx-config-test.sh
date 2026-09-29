@@ -211,7 +211,7 @@ test_08_defaults_without_config() {
     run_gx config sensitivePatterns
 
     assert_exit_code "get sensitivePatterns exits 0" 0
-    assert_output_contains "empty default is []" "[]"
+    assert_output_contains "missing config seeds default patterns" "*.pem"
 }
 
 # ======================================================================

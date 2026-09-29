@@ -1,6 +1,7 @@
 # Config Domain
 
-**File:** `internal/config/config.go`
+**Files:** `internal/config/config.go` (load/save/get/set) and
+`internal/config/registry.go` (the key registry)
 
 Persistent configuration for gx, stored at `.gx/config`. The `config`
 package loads, validates, and saves the configuration file. It is **not**
@@ -23,6 +24,9 @@ For the user-facing `gx config` CLI (usage, flags, examples), see
   package) so the config file is the single source of truth.
 - `DefaultProtectedBranches` — `["main", "master", "develop"]`. Used as the
   default when none are configured.
+- `syncStrategies` — `["rebase", "merge"]`, the value domain for
+  `syncStrategy`: `Set` rejects anything outside it, `Load` warns and
+  resets persisted values outside it.
 
 ## Config struct
 
@@ -43,8 +47,9 @@ Default() → *Config
 ```
 
 Returns a config with `Remote: "origin"`, `DefaultBranch: "develop"`,
-`SyncStrategy: "rebase"`, and `ProtectedBranches: DefaultProtectedBranches`.
-No sensitive patterns are set.
+`SyncStrategy: "rebase"`, `SensitivePatterns: DefaultSensitivePatterns`,
+and `ProtectedBranches: DefaultProtectedBranches`. Every entry point —
+missing file, absent key, empty key — lands on this same config.
 
 ## Load
 
@@ -60,9 +65,11 @@ Load() → (*Config, error)
 4. Invalid `syncStrategy` → prints a warning to stderr
    (`Warning: .gx/config has invalid syncStrategy '<value>'. Resetting to 'rebase'.`)
    and resets the value to `"rebase"`.
-5. Empty fields fall back to defaults: `remote` → `"origin"`,
-   `defaultBranch` → `"develop"`, `syncStrategy` → `"rebase"`, empty
-   `protectedBranches` → `DefaultProtectedBranches`.
+5. Empty fields fall back to their defaults through the registry
+   accessors (`applyDefaults(cfg, Default())`): every scalar and both
+   list keys — empty `sensitivePatterns` re-seeds
+   `DefaultSensitivePatterns`, empty `protectedBranches` re-seeds
+   `DefaultProtectedBranches`.
 
 ## Save
 
@@ -98,13 +105,15 @@ Get(key string) (string, error)
 Set(key, value string) error
 ```
 
-1. Unknown key → `"unknown config key: <key>"`.
+1. Unknown key → `"unknown config key: <key>"` (membership from the
+   registry).
 2. Trims the value; an empty value → `"<key> must not be empty"`.
-3. `syncStrategy` is lowercased and must be `"rebase"` or `"merge"`, else
-   `"syncStrategy must be 'rebase' or 'merge', got '<value>'"`.
-4. List keys parse the value as a JSON string array; on failure
+3. Loads the current config, then applies the field's registry setter:
+   `syncStrategy` is lowercased and must be inside `syncStrategies`, else
+   `"syncStrategy must be 'rebase' or 'merge', got '<value>'"`; list keys
+   parse the value as a JSON string array, on failure
    `"<key> must be a JSON string array, got '<value>'"`.
-5. Loads the current config, sets the field, and saves.
+4. Saves.
 
 ## Sensitive patterns (variadic CLI path)
 
@@ -121,10 +130,22 @@ Set(key, value string) error
 
 No sanitization or deduplication for protected branches.
 
-## configFields
+## Registry
 
-Key map accepted by `Get`/`Set`: `remote`, `defaultBranch`, `syncStrategy`,
-`sensitivePatterns`, `protectedBranches`.
+One ordered `fields` slice in `registry.go` is the single source for the
+key set: `remote`, `defaultBranch`, `syncStrategy`, `sensitivePatterns`,
+`protectedBranches`. Each entry carries how the key reads (`get`), writes
+with its validation (`set`), and tests emptiness (`empty`).
+
+- `Keys() []string` — keys in display order (used by `cmd/config.go`'s
+  `printConfig`).
+- `Get`/`Set` look the key up in the registry; `Load`'s empty-fallback
+  loop iterates it.
+- Adding a key = one registry entry + one `Config` field + its json tag.
+
+Residual: `cmd/config.go`'s variadic CLI dispatch still names the two
+list keys (`sensitivePatterns`, `protectedBranches`) — that is positional
+argument UX, not key membership, and stays in `cmd`.
 
 ## Consumers
 
@@ -132,6 +153,6 @@ Key map accepted by `Get`/`Set`: `remote`, `defaultBranch`, `syncStrategy`,
 | ------------------------------- | ----------------------------------------------------------------------- |
 | `cmd/config.go`                 | `Get`, `Set`, `Append/SetSensitivePatterns`, `Append/SetProtectedBranches`, `printConfig` |
 | `internal/workflow/guard.go`    | `RequireConfig()` errors when `config.Exists()` is false                |
-| `internal/workflow/init.go`     | Blocks re-init unless `--force` via `config.Exists()`; seeds `SensitivePatterns` from `DefaultSensitivePatterns`, writes via `Save` |
+| `internal/workflow/init.go`     | Blocks re-init unless `--force` via `config.Exists()`; starts from `Default()` (which seeds `SensitivePatterns` and `ProtectedBranches`), overrides remote/defaultBranch, writes via `Save` |
 
 See `docs/commands/config.md` for the user-facing CLI.

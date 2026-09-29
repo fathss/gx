@@ -44,13 +44,9 @@ func Init(run runner.Executor, remoteOverride, branchOverride string, force bool
 		}
 	}
 
-	cfg := &config.Config{
-		Remote:            remote,
-		DefaultBranch:     defaultBranch,
-		SyncStrategy:      "rebase",
-		SensitivePatterns: config.DefaultSensitivePatterns,
-		ProtectedBranches: config.DefaultProtectedBranches,
-	}
+	cfg := config.Default()
+	cfg.Remote = remote
+	cfg.DefaultBranch = defaultBranch
 
 	if err := config.Save(cfg); err != nil {
 		return &cli.Error{
