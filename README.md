@@ -49,6 +49,7 @@ gx status    # see where you stand
 | `gx ship`   | Push the current branch and print the PR URL                          |
 | `gx status` | Branch, staged/unstaged files, stash count, ahead/behind, recent log  |
 | `gx config` | Read/write `.gx/config` values                                        |
+| `gx clean`  | Prune local branches already merged into base                         |
 
 Full behavior and flags for each are documented under `src/docs/commands/`.
 
@@ -61,7 +62,6 @@ Full behavior and flags for each are documented under `src/docs/commands/`.
 | `gx tag`     | Cut and push a semver release tag                     |
 | `gx undo`    | Safely undo the last (unpushed) commit                |
 | `gx pr`      | Open the PR page for the current branch               |
-| `gx clean`   | Prune local branches already merged into base         |
 | `gx log`     | Opinionated, branch-scoped commit history             |
 | `gx stash`   | Named stash management (list/pop/drop by index)       |
 
