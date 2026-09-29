@@ -198,8 +198,10 @@ test_07_no_upstream() {
     setup_status_repo
 
     cd "$TEST_DIR"
-    git_checkout feature/test
-    git branch --unset-upstream 2>/dev/null
+    # Never pushed → no origin/<branch> ref exists. gx reports upstream
+    # against the configured remote, not @{upstream}, so unsetting the
+    # tracking config alone no longer means "no upstream".
+    git checkout -b feature/never-pushed
 
     run_gx status
 

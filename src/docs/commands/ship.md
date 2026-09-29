@@ -69,12 +69,13 @@ hint: Open a feature branch with git checkout -b <name> or cut a release with gx
 ### Divergence check
 
 `gx ship` fetches the latest remote-tracking ref for the current branch
-(no merge/rebase — just `git fetch <remote> <branch>` to update the ref)
-and compares local vs. remote:
+(no merge/rebase — just `git fetch <remote>` to update the refs)
+and compares local vs. remote at `<remote>/<branch>` — gx's one notion of
+upstream (the configured remote's copy, regardless of `@{upstream}`):
 
 | Local vs. remote                              | Behavior                                                                                                                                                  |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No upstream configured yet                    | Proceed to first-push path (see below).                                                                                                                   |
+| Remote-tracking ref doesn't exist yet         | Proceed to first-push path (see below).                                                                                                                   |
 | Remote is an ancestor of local (fast-forward) | Proceed with a normal `push`.                                                                                                                             |
 | Local is an ancestor of remote                | Block — pulling is needed, pushing would lose nothing but is pointless: `git push` would simply reject it, so `gx ship` surfaces a clearer message first. |
 | Histories diverged                            | Block unless `--force` is passed.                                                                                                                         |
@@ -100,13 +101,14 @@ work you haven't seen):
 
 ### Push
 
-**First push (no upstream tracking yet):**
+**First push (no remote-tracking ref yet — fetch still runs first so the
+decision uses fresh refs):**
 
 ```
 ▸ git push -u origin feat/login
 ```
 
-**Subsequent push (upstream already set, fast-forward):**
+**Subsequent push (remote-tracking ref exists, fast-forward):**
 
 ```
 ▸ git push origin feat/login
@@ -167,7 +169,7 @@ with a one-line note rather than an error — the push already succeeded:
 | Detached HEAD                               | Block: "Cannot ship from a detached HEAD."                                                                                                        |
 | Current branch is protected                 | Block, unconditionally — `--force` does not override.                                                                                             |
 | No commits ahead of base at all             | `git push` runs anyway (idempotent); if remote already matches, git reports "Everything up-to-date" and `gx ship` still attempts the PR URL step. |
-| No upstream set yet                         | Push with `-u origin <branch>`, no divergence check needed.                                                                                       |
+| No remote-tracking ref yet                    | Fetch runs first (fresh refs), then push with `-u origin <branch>` — no counts to compare.                                                           |
 | Fast-forward push possible                  | Normal push, no `--force` needed.                                                                                                                 |
 | Diverged, no `--force`                      | Block with ahead/behind counts and a hint.                                                                                                        |
 | Diverged, `--force`                         | Push with `--force-with-lease` (never a bare `--force`).                                                                                          |
@@ -241,8 +243,8 @@ hint: Rebase or merge first (gx sync), or re-run with --force if you intend
 | `cmd/ship.go`                 | Cobra command, `--force`/`--no-pr` flags, config loading                              |
 | `internal/workflow/ship.go`   | Protected-branch check, divergence check, push, PR-url orchestration                  |
 | `internal/git/branch.go`      | `CurrentBranch()` (empty string = detached HEAD)                                      |
-| `internal/git/remote.go`      | `Push()`, `PushSetUpstream()`, `PushForceWithLease()`, `HasUpstream()`, `RemoteURL()` |
-| `internal/git/divergence.go`  | `AheadBehind(remote, branch) (ahead, behind int, err error)`                          |
+| `internal/git/remote.go`      | `Push()`, `PushSetUpstream()`, `PushForceWithLease()`, `RemoteURL()`, `Fetch()`                          |
+| `internal/git/divergence.go`  | `CheckDivergence(remote, branch) (Divergence, error)` — `Tracking`/`Ahead`/`Behind`                       |
 | `internal/config/config.go`   | `Load()`, `ProtectedBranches` field (defaults to `main,master,develop`)               |
 | `internal/forge/forge.go`     | Interface: `PRCreateURL(remote, base, branch) string`, `ExistingPRURL(...)`           |
 | `internal/forge/github.go`    | GitHub URL construction + existing-PR lookup                                          |

@@ -33,16 +33,21 @@ func MergeAbort(run runner.Executor) error {
 }
 
 // ConflictedFiles returns the list of files with unresolved merge conflicts.
-// Uses git diff --name-only --diff-filter=U. Returns nil if none or on error.
+// Uses git diff --name-only --diff-filter=U; an empty result means no
+// conflicts, while read failures are returned as errors so callers never
+// mistake a broken repository for a clean one.
 // Works for conflicts from both merge and rebase operations.
-func ConflictedFiles(run runner.Executor) []string {
+func ConflictedFiles(run runner.Executor) ([]string, error) {
 	out, err := run.Output("diff", "--name-only", "--diff-filter=U")
-	if err != nil || out == "" {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
 	}
 	lines := strings.Split(out, "\n")
 	for i := range lines {
 		lines[i] = strings.TrimSpace(lines[i])
 	}
-	return lines
+	return lines, nil
 }

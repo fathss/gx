@@ -11,16 +11,17 @@ import (
 )
 
 // shipFake returns a Fake pre-wired for Ship to reach the push step on the
-// fast-forward path: no paused rebase/merge, on branch feat/login with an
-// upstream it is 1 commit ahead of, fetch succeeds.
+// fast-forward path: no paused rebase/merge, on branch feat/login whose
+// remote-tracking ref exists and is 1 commit behind, fetch succeeds.
 func shipFake() *runner.Fake {
 	return &runner.Fake{
 		OutputResults: map[string]runner.OutputResult{
 			"rev-parse --git-dir": {Out: ".git"},
 			// Must fail: a nil error would read as "merge in progress".
-			"rev-parse -q --verify MERGE_HEAD":                       {Err: errors.New("fatal: Needed a single revision")},
-			"branch --show-current":                                  {Out: "feat/login"},
-			"rev-parse --abbrev-ref feat/login@{upstream}":           {Out: "origin/feat/login"},
+			"rev-parse -q --verify MERGE_HEAD": {Err: errors.New("fatal: Needed a single revision")},
+			"branch --show-current":            {Out: "feat/login"},
+			// Remote-tracking ref exists → Tracking = true.
+			"rev-parse --verify origin/feat/login":                   {Out: "refs/remotes/origin/feat/login"},
 			"rev-list --count --left-right origin/feat/login...HEAD": {Out: "0\t1"},
 		},
 	}
@@ -117,4 +118,50 @@ func TestShipFetchFailureHintDoesNotInventCause(t *testing.T) {
 	if strings.Contains(cliErr.Hint, "network") || strings.Contains(cliErr.Hint, "Network") {
 		t.Errorf("fetch hint guessed a cause: %q", cliErr.Hint)
 	}
+}
+
+// A branch whose remote-tracking ref does not exist is a first push: ship
+// still fetches (refs must be fresh before deciding) and then sets upstream.
+func TestShipFirstPushFetchesThenSetsUpstreamWhenTrackingRefMissing(t *testing.T) {
+	fake := shipFake()
+	// Tracking ref missing → CheckDivergence returns Tracking=false.
+	fake.OutputResults["rev-parse --verify origin/feat/login"] = runner.OutputResult{
+		Err: errors.New("fatal: ambiguous argument 'origin/feat/login'"),
+	}
+
+	if err := runShip(t, fake); err != nil {
+		t.Fatalf("Ship failed: %v", err)
+	}
+
+	var sawFetch, sawSetUpstream bool
+	for _, call := range fake.Calls {
+		key := strings.Join(call, " ")
+		if key == "fetch origin" {
+			sawFetch = true
+		}
+		if key == "push -u origin feat/login" {
+			sawSetUpstream = true
+		}
+	}
+	if !sawFetch {
+		t.Error("first push should fetch before deciding (fresh refs)")
+	}
+	if !sawSetUpstream {
+		t.Error("first push should use push -u")
+	}
+}
+
+// A real git failure during the divergence check must surface as an error,
+// never masquerade as "no upstream" (the old -1,-1 sentinel lie).
+func TestShipDivergenceCheckFailureIsHonest(t *testing.T) {
+	fake := shipFake()
+	fake.OutputResults["rev-list --count --left-right origin/feat/login...HEAD"] = runner.OutputResult{
+		Err: &runner.CommandError{
+			Args:     []string{"rev-list", "--count", "--left-right", "origin/feat/login...HEAD"},
+			ExitCode: 128,
+			Stderr:   "fatal: not a valid object name",
+		},
+	}
+
+	assertShipError(t, runShip(t, fake), "Failed to check divergence status.", "")
 }

@@ -86,9 +86,13 @@ are merged.
 git branch -r --merged <remote>/<base>
 ```
 
-Returns remote-tracking refs merged into the given base. Qualifies the base
-with `<remote>/` when it is not already qualified (e.g. `develop` becomes
-`origin/develop`). Returns `nil` when no refs are merged.
+Returns the **bare branch names** of remote-tracking refs merged into the
+given base. Qualifies the base with `<remote>/` when it is not already
+qualified (idempotent — via `Qualify`). Normalization happens below the
+seam so workflows never see git listing formats: the `<remote>/` prefix is
+stripped, symbolic-ref arrow lines (`origin/HEAD -> origin/main`) and
+`origin/HEAD` itself are dropped, as are refs of other remotes. Returns
+`nil` when no refs are merged.
 
 ---
 

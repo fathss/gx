@@ -133,33 +133,30 @@ func Status(run runner.Executor, cfg *config.Config) error {
 	if current == "" {
 		// Detached HEAD — not applicable
 		aheadBehindLine += " (detached HEAD)"
-	} else if !git.HasUpstream(run, current) {
-		aheadBehindLine += " (no upstream configured)"
 	} else {
-		upstream := upstreamRef(run, current)
-		remote, branch := parseUpstreamRef(upstream)
-
-		ahead, behind, err := git.AheadBehind(run, remote, branch)
-		if err != nil {
+		// gx's one notion of upstream: the configured remote's copy of the branch.
+		upstream := git.Qualify(cfg.Remote, current)
+		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
+		switch {
+		case divErr != nil:
 			aheadBehindLine += " (upstream error)"
-		} else if ahead == -1 && behind == -1 {
-			// Remote-tracking ref doesn't exist yet
+		case !div.Tracking:
 			aheadBehindLine += " (no upstream configured)"
-		} else if ahead == 0 && behind == 0 {
+		case div.Ahead == 0 && div.Behind == 0:
 			aheadBehindLine += fmt.Sprintf(" up to date with %s", upstream)
-		} else {
+		default:
 			var parts []string
-			if ahead > 0 {
-				parts = append(parts, fmt.Sprintf("%d ahead", ahead))
+			if div.Ahead > 0 {
+				parts = append(parts, fmt.Sprintf("%d ahead", div.Ahead))
 			}
-			if behind > 0 {
-				parts = append(parts, fmt.Sprintf("%d behind", behind))
+			if div.Behind > 0 {
+				parts = append(parts, fmt.Sprintf("%d behind", div.Behind))
 			}
 			// "N ahead, M behind <upstream>" or "N ahead of <upstream>" or "N behind <upstream>"
 			connector := " "
-			if ahead > 0 && behind == 0 {
+			if div.Ahead > 0 && div.Behind == 0 {
 				connector = " of "
-			} else if behind > 0 && ahead == 0 {
+			} else if div.Behind > 0 && div.Ahead == 0 {
 				connector = " "
 			} else {
 				connector = " "
@@ -199,24 +196,4 @@ func totalStaged(staged map[string][]string) int {
 		total += len(files)
 	}
 	return total
-}
-
-// upstreamRef returns the full upstream tracking ref for the current branch,
-// e.g. "origin/feature/test". Returns "" if no upstream is configured.
-func upstreamRef(run runner.Executor, branch string) string {
-	out, err := run.Output("rev-parse", "--abbrev-ref", branch+"@{upstream}")
-	if err != nil {
-		return ""
-	}
-	return out
-}
-
-// parseUpstreamRef splits an upstream ref like "origin/feature/test"
-// into remote ("origin") and branch ("feature/test").
-func parseUpstreamRef(ref string) (remote, branch string) {
-	idx := strings.Index(ref, "/")
-	if idx == -1 {
-		return ref, ""
-	}
-	return ref[:idx], ref[idx+1:]
 }

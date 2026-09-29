@@ -168,7 +168,14 @@ func Save(run runner.Executor, cfg *config.Config, files []string, msg string, p
 	// Only warn when there are BOTH staged changes AND unstaged tracked-file changes.
 	if !hasSpecificFiles && !patchMode && len(filesToStage) > 0 {
 		hasUnstaged, _ := git.DiffUnstagedFiles(run)
-		if git.HasStagedChanges(run) && hasUnstaged != "" {
+		hasStaged, stagedErr := git.HasStagedChanges(run)
+		if stagedErr != nil {
+			return &cli.Error{
+				Message: "Failed to check staged changes.",
+				Hint:    "Run `git status` to inspect the index.",
+			}
+		}
+		if hasStaged && hasUnstaged != "" {
 			warned, err := promptConfirm("Some files are already staged. Running gx save will stage all remaining changes in tracked files, overwriting any partial staging. Continue?")
 			if err != nil {
 				return err
@@ -241,7 +248,13 @@ func Save(run runner.Executor, cfg *config.Config, files []string, msg string, p
 	}
 
 	// 7. Conflict marker detection (Issue 15)
-	hasStaged := git.HasStagedChanges(run)
+	hasStaged, stagedErr := git.HasStagedChanges(run)
+	if stagedErr != nil {
+		return &cli.Error{
+			Message: "Failed to check staged changes.",
+			Hint:    "Run `git status` to inspect the index.",
+		}
+	}
 	if hasStaged {
 		if err := checkConflictMarkers(run); err != nil {
 			return err

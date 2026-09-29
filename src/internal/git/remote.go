@@ -2,7 +2,6 @@ package git
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/fathss/gx/internal/runner"
@@ -25,8 +24,7 @@ func Fetch(run runner.Executor, remote string) error {
 }
 
 func FastForward(run runner.Executor, remote, branch string) error {
-	target := fmt.Sprintf("%s/%s", remote, branch)
-	return run.Run("merge", "--ff-only", target)
+	return run.Run("merge", "--ff-only", Qualify(remote, branch))
 }
 
 // RemoteExists returns true if the given remote name is configured.
@@ -37,7 +35,7 @@ func RemoteExists(run runner.Executor, name string) bool {
 
 // RemoteBranchExists returns true if the remote-tracking branch ref exists.
 func RemoteBranchExists(run runner.Executor, remote, branch string) bool {
-	_, err := run.Output("rev-parse", "--verify", remote+"/"+branch)
+	_, err := run.Output("rev-parse", "--verify", Qualify(remote, branch))
 	return err == nil
 }
 
@@ -67,12 +65,6 @@ func PushSetUpstream(run runner.Executor, remote, branch string) error {
 // PushForceWithLease force-pushes with lease (safe force).
 func PushForceWithLease(run runner.Executor, remote, branch string) error {
 	return run.Run("push", "--force-with-lease", remote, branch)
-}
-
-// HasUpstream returns true if the branch has an upstream tracking branch configured.
-func HasUpstream(run runner.Executor, branch string) bool {
-	_, err := run.Output("rev-parse", "--abbrev-ref", branch+"@{upstream}")
-	return err == nil
 }
 
 // RemoteURL returns the URL of the given remote.

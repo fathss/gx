@@ -192,16 +192,17 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 
 		// 6. If already on base branch — fast-forward only (fetch already done above)
 		if current == cfg.DefaultBranch {
+			baseRef := git.Qualify(cfg.Remote, cfg.DefaultBranch)
 			if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
 				return settleRestore, &cli.Error{
-					Message: fmt.Sprintf("Remote branch '%s/%s' not found.", cfg.Remote, cfg.DefaultBranch),
+					Message: fmt.Sprintf("Remote branch '%s' not found.", baseRef),
 					Hint:    "Has it been deleted? Check the remote repository.",
 				}
 			}
 			if err := git.FastForward(run, cfg.Remote, cfg.DefaultBranch); err != nil {
 				return settleRestore, &cli.Error{
-					Message: fmt.Sprintf("Local branch '%s' has diverged from '%s/%s'.", cfg.DefaultBranch, cfg.Remote, cfg.DefaultBranch),
-					Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + cfg.DefaultBranch + " " + cfg.Remote + "/" + cfg.DefaultBranch + "\nOr rebase and force-push:\n  git rebase " + cfg.Remote + "/" + cfg.DefaultBranch + "\n  git push --force-with-lease",
+					Message: fmt.Sprintf("Local branch '%s' has diverged from '%s'.", cfg.DefaultBranch, baseRef),
+					Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + cfg.DefaultBranch + " " + baseRef + "\nOr rebase and force-push:\n  git rebase " + baseRef + "\n  git push --force-with-lease",
 				}
 			}
 			return settleCommit, nil
@@ -265,7 +266,11 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 				if git.IsMergeInProgress(run) {
 					// Leave merge state, preserve stash — user resolves and re-runs
 					msg := "Merge stopped because of conflicts."
-					if files := git.ConflictedFiles(run); len(files) > 0 {
+					files, filesErr := git.ConflictedFiles(run)
+					switch {
+					case filesErr != nil:
+						msg += " The conflicted files could not be listed."
+					case len(files) > 0:
 						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
 					}
 					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
@@ -290,7 +295,11 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 					if info := git.CurrentRebasePatchInfo(run); info != "" {
 						msg = fmt.Sprintf("Rebase stopped because of conflicts while applying commit %s.", info)
 					}
-					if files := git.ConflictedFiles(run); len(files) > 0 {
+					files, filesErr := git.ConflictedFiles(run)
+					switch {
+					case filesErr != nil:
+						msg += " The conflicted files could not be listed."
+					case len(files) > 0:
 						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
 					}
 					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
@@ -325,7 +334,13 @@ func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
 
 	if err := git.RebaseContinue(run); err != nil {
 		if git.IsRebaseInProgress(run) {
-			files := git.ConflictedFiles(run)
+			files, filesErr := git.ConflictedFiles(run)
+			if filesErr != nil {
+				return &cli.Error{
+					Message: "There are still unresolved conflicts, but the conflicted files could not be listed.",
+					Hint:    "Resolve the remaining conflicts, stage the files, then run gx sync --continue again.",
+				}
+			}
 			if len(files) > 0 {
 				// Still unresolved conflicts
 				msg := "There are still unresolved conflicts."
@@ -365,8 +380,15 @@ func autoContinueMergeSync(run runner.Executor, sessionGit syncGit) error {
 	if err := git.MergeContinue(run); err != nil {
 		if git.IsMergeInProgress(run) {
 			// Still unresolved conflicts
+			files, filesErr := git.ConflictedFiles(run)
+			if filesErr != nil {
+				return &cli.Error{
+					Message: "There are still unresolved conflicts, but the conflicted files could not be listed.",
+					Hint:    "Resolve the remaining conflicts, stage the files, then run gx sync --continue again.",
+				}
+			}
 			msg := "There are still unresolved conflicts."
-			if files := git.ConflictedFiles(run); len(files) > 0 {
+			if len(files) > 0 {
 				msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
 			}
 			return &cli.Error{

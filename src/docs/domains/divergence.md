@@ -4,24 +4,40 @@
 
 ## Overview
 
-Computes how far a local branch has diverged from its remote-tracking
-counterpart. Consumed by `gx status` (ahead/behind section) and the `gx ship`
-divergence check.
+Computes how far a local branch has diverged from its counterpart at
+`<remote>/<branch>` — gx's **one notion of upstream**: the configured
+remote's copy of the branch, never `@{upstream}` (which can point at a
+different remote entirely). Consumed by `gx status` (ahead/behind section)
+and the `gx ship` divergence check.
 
 ---
 
-## AheadBehind
+## Divergence
 
 ```go
-func AheadBehind(run runner.Executor, remote, branch string) (ahead, behind int, err error)
+type Divergence struct {
+	Ahead    int
+	Behind   int
+	Tracking bool
+}
 ```
 
-Returns the number of commits the local branch is ahead of and behind its
-remote-tracking counterpart:
+`Tracking` reports whether the remote-tracking ref `<remote>/<branch>`
+exists at all. `Ahead`/`Behind` are only meaningful when `Tracking` is true.
 
+---
+
+## CheckDivergence
+
+```go
+func CheckDivergence(run runner.Executor, remote, branch string) (Divergence, error)
 ```
-git rev-list --count --left-right <remote>/<branch>...HEAD
-```
+
+Two queries, in order:
+
+1. `git rev-parse --verify <remote>/<branch>` — establishes `Tracking`
+2. `git rev-list --count --left-right <remote>/<branch>...HEAD` — only run
+   when the ref exists
 
 `--left-right` prefixes each counted commit with `<` (left side of the `...`
 range — the remote) or `>` (right side — HEAD), and `--count` emits one
@@ -40,13 +56,22 @@ The output is split with `strings.Fields` (whitespace-split), **not**
 fixed-width substrings — the runner right-trims trailing line breaks only,
 so `Fields` is the robust choice regardless of tab/space separation.
 
+### Edge cases
+
 | Edge case | Behaviour |
 |---|---|
-| Remote-tracking ref doesn't exist (no upstream yet) | Returns `-1, -1, nil` |
-| Output doesn't split into exactly 2 fields | Returns `0, 0, nil` |
-| Fields present but non-numeric | Returns `0, 0, error` with the raw output |
+| Remote-tracking ref doesn't exist (never pushed) | Returns `Divergence{Tracking: false}, nil` — a normal state, not an error; `rev-list` is skipped |
+| `rev-list` fails (broken repo, bad revision) | Returns the error — callers surface their own failure message |
+| Output doesn't split into exactly 2 fields | Returns an error with the raw output |
+| Fields present but non-numeric | Returns an error with the raw output |
+
+There is deliberately **no sentinel value**: a real git failure can never be
+mistaken for "no upstream", and "no upstream" can never be mistaken for a
+count.
 
 ### Consumers
 
-- `gx status` — ahead/behind section
-- `gx ship` — divergence check before push
+- `gx status` — ahead/behind section; `Tracking == false` prints
+  `(no upstream configured)`
+- `gx ship` — decides first push (`!Tracking`) vs. divergence check before
+  push

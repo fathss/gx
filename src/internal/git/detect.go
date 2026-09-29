@@ -35,8 +35,8 @@ func DetectRemote(run runner.Executor) (string, error) {
 func DetectDefaultBranch(run runner.Executor, remote string) (string, error) {
 	ref, err := run.Output("rev-parse", "--abbrev-ref", remote+"/HEAD")
 	if err == nil && ref != "" {
-		branch := strings.TrimPrefix(ref, remote+"/")
-		if branch != "" && branch != remote+"/HEAD" {
+		branch := StripRemote(remote, ref)
+		if branch != "" && branch != ref {
 			return branch, nil
 		}
 	}

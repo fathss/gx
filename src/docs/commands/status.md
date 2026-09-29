@@ -105,7 +105,9 @@ This is a count only — `gx status` doesn't list stash contents; that's
 
 **5. Ahead/behind**
 
-Compares the current branch against its upstream, if one is configured:
+Compares the current branch against `<remote>/<branch>` — the configured
+remote's copy of the branch, which is gx's one notion of upstream (not
+`@{upstream}`):
 
 ```
 Ahead/behind: 2 ahead, 1 behind origin/feat/login
@@ -120,7 +122,7 @@ Ahead/behind: 1 behind origin/feat/login
 Ahead/behind: (no upstream configured)
 ```
 
-If there's an upstream configured but the remote-tracking ref is stale
+If the remote-tracking ref exists but is stale
 (no fetch has happened recently), `gx status` does **not** fetch on its
 own — it reports against whatever the local remote-tracking ref currently
 holds, and notes this:
@@ -160,8 +162,8 @@ the available commits are shown — no padding or placeholder lines.
 | Nothing staged                          | "Staged: (none)"                                                                                                |
 | Nothing unstaged, no untracked files    | "Unstaged:" section and "Untracked:" section both omitted entirely.                                             |
 | No stashes                              | "Stashes: (none)"                                                                                               |
-| No upstream configured                  | "Ahead/behind: (no upstream configured)"                                                                        |
-| Upstream configured, fully in sync      | "Ahead/behind: up to date with <remote>/<branch>"                                                               |
+| No remote-tracking ref (never pushed)         | "Ahead/behind: (no upstream configured)"                                                                        |
+| Remote-tracking ref present, fully in sync    | "Ahead/behind: up to date with <remote>/<branch>"                                                               |
 | Fewer than 5 commits on branch          | Prints only what exists, no padding.                                                                            |
 | Empty repo (no commits at all)          | "Recent commits: (none — no commits yet)"                                                                       |
 | `gx status` run mid-conflict (unmerged) | Staged/unstaged sections show `both modified:` entries under a third `Conflicted:` group, listed before Staged. |
@@ -229,7 +231,7 @@ Recent commits:
 | `internal/git/status.go`      | `Status()`, `NonEmptyStatus()`, `GetParsedStatus()`, `FormatStagedLabel()` |
 | `internal/git/branch.go`      | `GetHEADState()` (HEAD state + short hash)                       |
 | `internal/git/stash.go`       | `StashList()` (reused from `stash`)                                 |
-| `internal/git/divergence.go`  | `AheadBehind(remote, branch)` (reused from `ship`)                 |
+| `internal/git/divergence.go`  | `CheckDivergence(remote, branch)` (reused from `ship`)               |
 | `internal/git/log.go`         | `RecentCommits(n int)` (shared with `gx log`'s formatting)         |
 | `internal/config/config.go`   | `Load()`                                                           |
 | `tests/gx-status-test.sh`     | Bash integration tests                                             |

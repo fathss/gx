@@ -34,7 +34,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 			Hint:    "Check that the configured defaultBranch exists locally.",
 		}
 	}
-	filteredLocal := filterBranches(localCandidates, cfg, current, cfg.Remote, false)
+	filteredLocal := filterLocalBranches(localCandidates, cfg, current)
 
 	// 3. Remote-tracking candidates: merged into <remote>/<defaultBranch>.
 	remoteCandidates, err := git.MergedRemoteBranches(run, cfg.Remote, cfg.DefaultBranch)
@@ -44,24 +44,11 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 			Hint:    "Check that the configured remote and defaultBranch exist.",
 		}
 	}
-	filteredRemoteTracking := filterBranches(remoteCandidates, cfg, current, cfg.Remote, true)
+	filteredRemoteTracking := filterBranches(remoteCandidates, cfg)
 
-	// 4. Remote deletion candidates (branch-name portion of remote-tracking list).
-	var remoteToDelete []string
-	if remote && len(filteredRemoteTracking) > 0 {
-		for _, ref := range filteredRemoteTracking {
-			trimmed := strings.TrimSpace(ref)
-			// ref is like "origin/feature/foo"
-			if !strings.HasPrefix(trimmed, cfg.Remote+"/") {
-				continue
-			}
-			branch := strings.TrimPrefix(trimmed, cfg.Remote+"/")
-			if branch == "" || strings.Contains(branch, " ") || strings.Contains(branch, "->") {
-				continue
-			}
-			remoteToDelete = append(remoteToDelete, branch)
-		}
-	}
+	// 4. Remote deletion candidates mirror the remote-tracking list; both are
+	//    bare branch names below the seam.
+	remoteToDelete := filteredRemoteTracking
 
 	// 5. Confirmations, both collected before any mutation.
 	//    Local scope first (local branches + remote-tracking refs), then the
@@ -72,10 +59,10 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal)+len(filteredRemoteTracking)))
 		for _, br := range filteredLocal {
-			b.WriteString(fmt.Sprintf("\n  %s", branchListingName(br)))
+			b.WriteString(fmt.Sprintf("\n  %s", br))
 		}
-		for _, ref := range filteredRemoteTracking {
-			b.WriteString(fmt.Sprintf("\n  %s", branchListingName(ref)))
+		for _, br := range filteredRemoteTracking {
+			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 		}
 		confirmed, err := confirm(b.String(), yes)
 		if err != nil {
@@ -89,7 +76,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
 		for _, br := range remoteToDelete {
-			b.WriteString(fmt.Sprintf("\n  %s/%s", cfg.Remote, br))
+			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 		}
 		confirmed, err := confirm(b.String(), yes)
 		if err != nil {
@@ -104,11 +91,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 
 	if doLocalDelete {
 		for _, br := range filteredLocal {
-			trimmed := branchListingName(br)
-			if trimmed == "" {
-				continue
-			}
-			if err := git.DeleteLocalBranch(run, trimmed); err != nil {
+			if err := git.DeleteLocalBranch(run, br); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -117,16 +100,8 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 			pruned++
 		}
 
-		for _, ref := range filteredRemoteTracking {
-			trimmed := strings.TrimSpace(ref)
-			if !strings.HasPrefix(trimmed, cfg.Remote+"/") {
-				continue
-			}
-			branch := strings.TrimPrefix(trimmed, cfg.Remote+"/")
-			if branch == "" || strings.Contains(branch, "->") {
-				continue
-			}
-			if err := git.DeleteRemoteTrackingBranch(run, cfg.Remote, branch); err != nil {
+		for _, br := range filteredRemoteTracking {
+			if err := git.DeleteRemoteTrackingBranch(run, cfg.Remote, br); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -160,65 +135,35 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	return nil
 }
 
-// branchListingName normalizes one line of `git branch` output: it strips
-// surrounding whitespace and the "* " marker git prints for the current branch.
-func branchListingName(listed string) string {
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(listed), "* "))
-}
-
-// filterBranches removes protected, current, default, and HEAD refs from the
-// candidate list. For remote-tracking refs it matches the branch-name portion
-// (stripping the <remote>/ prefix) so that protectedBranches: ["main"] matches
-// "origin/main".
-func filterBranches(candidates []string, cfg *config.Config, current, remote string, isRemoteTracking bool) []string {
+// filterBranches drops the default branch and protected branches from bare
+// branch names. Both local and remote-tracking candidates arrive already
+// normalized by the git layer, so policy is the only concern here.
+func filterBranches(candidates []string, cfg *config.Config) []string {
 	protectedSet := make(map[string]bool, len(cfg.ProtectedBranches))
 	for _, p := range cfg.ProtectedBranches {
 		protectedSet[p] = true
 	}
 
 	var out []string
-	for _, cand := range candidates {
-		trimmed := strings.TrimSpace(cand)
-		if trimmed == "" {
+	for _, name := range candidates {
+		if name == "" || name == cfg.DefaultBranch || protectedSet[name] {
 			continue
 		}
-		// Local candidates may have "* " prefix.
-		if !isRemoteTracking && strings.HasPrefix(trimmed, "* ") {
-			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "* "))
-		}
-		// Remote-tracking refs may contain symbolic-ref arrow: "origin/HEAD -> origin/main"
-		if isRemoteTracking && strings.Contains(trimmed, "->") {
-			continue
-		}
+		out = append(out, name)
+	}
+	return out
+}
 
-		var branchName string
-		if isRemoteTracking {
-			if !strings.HasPrefix(trimmed, remote+"/") {
-				continue
-			}
-			branchName = strings.TrimPrefix(trimmed, remote+"/")
-			if branchName == "HEAD" {
-				continue
-			}
-			if branchName == cfg.DefaultBranch {
-				continue
-			}
-			if protectedSet[branchName] {
-				continue
-			}
-		} else {
-			branchName = trimmed
-			if branchName == cfg.DefaultBranch {
-				continue
-			}
-			if protectedSet[branchName] {
-				continue
-			}
-			if current != "" && branchName == current {
-				continue
-			}
+// filterLocalBranches applies filterBranches and additionally drops the
+// current branch. Remote-tracking candidates deliberately skip that check:
+// origin/<current> stays prunable while its local counterpart is checked out.
+func filterLocalBranches(candidates []string, cfg *config.Config, current string) []string {
+	var out []string
+	for _, name := range filterBranches(candidates, cfg) {
+		if current != "" && name == current {
+			continue
 		}
-		out = append(out, trimmed)
+		out = append(out, name)
 	}
 	return out
 }

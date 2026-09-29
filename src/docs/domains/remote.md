@@ -96,16 +96,6 @@ Force-push with lease (safe force — rejects if someone else pushed in between)
 
 ---
 
-## HasUpstream
-
-```
-git rev-parse --abbrev-ref <branch>@{upstream}
-```
-
-Returns `true` if the branch has an upstream tracking branch configured. Used by `gx ship` to decide whether to run the divergence check.
-
----
-
 ## RemoteURL
 
 ```

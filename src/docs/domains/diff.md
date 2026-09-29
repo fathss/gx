@@ -27,8 +27,18 @@ Used by `gx save` to show a summary of what will be committed.
 git diff --cached --quiet
 ```
 
-Returns `true` when there are staged changes in the index. Exits 0 if nothing
-is staged — the error from the non-zero exit signals that changes exist.
+```go
+func HasStagedChanges(run runner.Executor) (bool, error)
+```
+
+Reports whether the index has staged changes. The underlying command's exit
+code is the verdict:
+
+| Exit code | Result |
+|---|---|
+| 0 | `false, nil` — index is clean |
+| 1 | `true, nil` — differences exist |
+| anything else (or non-ExitError) | `false, err` — a broken repository is never reported as "nothing staged" |
 
 Used by `gx save` to check whether to warn about overwriting partial staging,
 and by `gx save` conflict-marker detection.

@@ -44,67 +44,58 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 		}
 	}
 
-	// 4. Check upstream — skip fetch + divergence for first push
-	hasUpstream := git.HasUpstream(run, current)
-	var pushFn func() error
-
-	if !hasUpstream {
-		// First push: no upstream tracking yet, skip fetch and divergence check
-		pushFn = func() error {
-			return git.PushSetUpstream(run, cfg.Remote, current)
-		}
-	} else {
-		// 5. Fetch remote to update remote-tracking refs
-		if err := git.Fetch(run, cfg.Remote); err != nil {
-			return &cli.Error{
-				Message: fmt.Sprintf("Failed to fetch branch %q from %q.", current, cfg.Remote),
-				Hint:    "Check the error above; verify the remote with `git remote -v`.",
-			}
-		}
-
-		// 6. Divergence check
-		ahead, behind, err := git.AheadBehind(run, cfg.Remote, current)
-		if err != nil {
-			return &cli.Error{
-				Message: "Failed to check divergence status.",
-			}
-		}
-
-		switch {
-		case ahead == -1 && behind == -1:
-			// Remote-tracking ref doesn't exist yet — treat as first push
-			pushFn = func() error {
-				return git.PushSetUpstream(run, cfg.Remote, current)
-			}
-
-		case behind > 0 && ahead == 0:
-			// Local is behind remote — pointless to push
-			return &cli.Error{
-				Message: fmt.Sprintf("Remote has commits not on local for %q.\n  remote: %d commit(s) ahead", current, behind),
-				Hint:    "Pull or rebase first (gx sync).",
-			}
-
-		case behind > 0 && ahead > 0:
-			// Diverged
-			if !force {
-				return &cli.Error{
-					Message: fmt.Sprintf("Local and remote history have diverged for %q.\n  local:  %d commit(s) not on remote\n  remote: %d commit(s) not on local", current, ahead, behind),
-					Hint:    "Rebase or merge first (gx sync), or re-run with --force if you intend to overwrite remote history.",
-				}
-			}
-			pushFn = func() error {
-				return git.PushForceWithLease(run, cfg.Remote, current)
-			}
-
-		default:
-			// Fast-forward (ahead >= 0, behind == 0) or up-to-date (both 0)
-			pushFn = func() error {
-				return git.Push(run, cfg.Remote, current)
-			}
+	// 4. Fetch remote to update remote-tracking refs, then check divergence
+	//    against the configured remote — gx's one notion of upstream.
+	if err := git.Fetch(run, cfg.Remote); err != nil {
+		return &cli.Error{
+			Message: fmt.Sprintf("Failed to fetch branch %q from %q.", current, cfg.Remote),
+			Hint:    "Check the error above; verify the remote with `git remote -v`.",
 		}
 	}
 
-	// 6. Push
+	div, err := git.CheckDivergence(run, cfg.Remote, current)
+	if err != nil {
+		return &cli.Error{
+			Message: "Failed to check divergence status.",
+		}
+	}
+
+	var pushFn func() error
+
+	switch {
+	case !div.Tracking:
+		// Remote-tracking ref doesn't exist yet — first push sets upstream
+		pushFn = func() error {
+			return git.PushSetUpstream(run, cfg.Remote, current)
+		}
+
+	case div.Behind > 0 && div.Ahead == 0:
+		// Local is behind remote — pointless to push
+		return &cli.Error{
+			Message: fmt.Sprintf("Remote has commits not on local for %q.\n  remote: %d commit(s) ahead", current, div.Behind),
+			Hint:    "Pull or rebase first (gx sync).",
+		}
+
+	case div.Behind > 0 && div.Ahead > 0:
+		// Diverged
+		if !force {
+			return &cli.Error{
+				Message: fmt.Sprintf("Local and remote history have diverged for %q.\n  local:  %d commit(s) not on remote\n  remote: %d commit(s) not on local", current, div.Ahead, div.Behind),
+				Hint:    "Rebase or merge first (gx sync), or re-run with --force if you intend to overwrite remote history.",
+			}
+		}
+		pushFn = func() error {
+			return git.PushForceWithLease(run, cfg.Remote, current)
+		}
+
+	default:
+		// Fast-forward (ahead >= 0, behind == 0) or up-to-date (both 0)
+		pushFn = func() error {
+			return git.Push(run, cfg.Remote, current)
+		}
+	}
+
+	// 5. Push
 	if err := pushFn(); err != nil {
 		hint := "Check the error above."
 		if git.IsNonFastForward(err) {
@@ -118,7 +109,7 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 
 	fmt.Printf("✔ Pushed %s → %s\n", current, cfg.Remote)
 
-	// 7. PR URL (unless --no-pr)
+	// 6. PR URL (unless --no-pr)
 	if noPR {
 		return nil
 	}

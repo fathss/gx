@@ -64,12 +64,14 @@ Candidates come from the merged-into-base check. The merge-base target differs b
 - **Remote-tracking refs:** `git branch -r --merged <remote>/<defaultBranch>` — checked against freshly-fetched remote base.
 - **Remote branches** (`--remote`): same as remote-tracking — against `<remote>/<defaultBranch>`. Using the local base for remote deletion would be unsafe: if local `defaultBranch` is ahead of the remote (unpushed local merges), a branch merged only via a local-only commit could be deleted from the remote while its commits are not reachable from the remote's actual base.
 
-The filter removes (matching the **branch-name portion**, stripping `<remote>/` prefix for remote-tracking refs so `protectedBranches: ["main"]` matches `origin/main`):
+Both listings are normalized to bare branch names **below the seam**: the
+git layer strips the `* ` marker from local listings, strips `<remote>/`
+from remote-tracking refs, and drops `origin/HEAD` / `origin/HEAD ->
+origin/main` arrow lines. The workflow filter then removes:
 
 - Protected branches (`protectedBranches` config, defaults to `main`, `master`, `develop`)
-- The currently-checked-out branch
-- The default branch itself (and its `<remote>/...` counterpart)
-- The remote HEAD symbolic ref (`<remote>/HEAD` and `origin/HEAD -> origin/main` lines)
+- The default branch itself (bare names match on both sides, so `protectedBranches: ["main"]` matches `origin/main`)
+- The currently-checked-out branch — **local candidates only**: `origin/<current>` stays prunable while its local counterpart is in use
 
 Remote deletion candidates come from the remote-tracking list independently, so a collaborator with no local branch can still prune the remote.
 

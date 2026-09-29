@@ -1,7 +1,6 @@
 package git
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/fathss/gx/internal/runner"
@@ -87,31 +86,39 @@ func MergedBranches(run runner.Executor, base string) ([]string, error) {
 	return branches, nil
 }
 
-// MergedRemoteBranches returns remote-tracking refs that are merged into the
-// given base. It wraps `git branch -r --merged <base>` where base is the
-// qualified remote base (e.g. "origin/develop"). The remote parameter is used
-// to qualify the base when it is not already qualified.
+// MergedRemoteBranches returns the bare names of remote-tracking branches
+// merged into the given base. It wraps `git branch -r --merged <base>`; the
+// base is qualified with remote when not already qualified. Normalization
+// happens here so workflows never see git listing formats: the "<remote>/"
+// prefix, symbolic-ref arrow lines ("origin/HEAD -> origin/main"), and
+// origin/HEAD itself are resolved or dropped below the seam.
 func MergedRemoteBranches(run runner.Executor, remote, base string) ([]string, error) {
-	qualified := base
-	if !strings.HasPrefix(base, remote+"/") {
-		qualified = fmt.Sprintf("%s/%s", remote, base)
-	}
-	out, err := run.Output("branch", "-r", "--merged", qualified)
+	out, err := run.Output("branch", "-r", "--merged", Qualify(remote, base))
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(out) == "" {
 		return nil, nil
 	}
-	var refs []string
+	var branches []string
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		refs = append(refs, trimmed)
+		if strings.Contains(trimmed, "->") {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, remote+"/") {
+			continue
+		}
+		bare := StripRemote(remote, trimmed)
+		if bare == "" || bare == "HEAD" {
+			continue
+		}
+		branches = append(branches, bare)
 	}
-	return refs, nil
+	return branches, nil
 }
 
 // DeleteLocalBranch deletes a local branch with `git branch -d` (safe delete).
@@ -123,10 +130,6 @@ func DeleteLocalBranch(run runner.Executor, branch string) error {
 // `git branch -d -r <remote>/<branch>`. The branch argument may be a bare
 // name or an already-qualified ref; the remote prefix is normalized.
 func DeleteRemoteTrackingBranch(run runner.Executor, remote, branch string) error {
-	bare := branch
-	if strings.HasPrefix(branch, remote+"/") {
-		bare = strings.TrimPrefix(branch, remote+"/")
-	}
-	ref := fmt.Sprintf("%s/%s", remote, bare)
+	ref := Qualify(remote, StripRemote(remote, branch))
 	return run.Run("branch", "-d", "-r", ref)
 }

@@ -27,7 +27,7 @@ type Config struct {
 	Remote            string   `json:"remote"`
 	DefaultBranch     string   `json:"defaultBranch"`
 	SyncStrategy      string   `json:"syncStrategy"`
-	SensitivePatterns  []string `json:"sensitivePatterns,omitempty"`
+	SensitivePatterns []string `json:"sensitivePatterns,omitempty"`
 	ProtectedBranches []string `json:"protectedBranches,omitempty"`
 }
 
@@ -245,9 +245,9 @@ func AppendProtectedBranches(branches []string) error {
 }
 
 var configFields = map[string]string{
-	"remote":             "remote",
-	"defaultBranch":      "defaultBranch",
-	"syncStrategy":       "syncStrategy",
-	"sensitivePatterns":  "sensitivePatterns",
-	"protectedBranches":  "protectedBranches",
+	"remote":            "remote",
+	"defaultBranch":     "defaultBranch",
+	"syncStrategy":      "syncStrategy",
+	"sensitivePatterns": "sensitivePatterns",
+	"protectedBranches": "protectedBranches",
 }

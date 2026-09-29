@@ -159,8 +159,8 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 | `internal/workflow/repostate.go` | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspect()`, `requireNoInProgress()` guard shared by save/ship |
 | `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit, `promptConfirm()`                                                             |
 | `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                               |
-| `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot, `upstreamRef()`, `parseUpstreamRef()`                                                             |
-| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`                                                                     |
+| `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot (upstream = configured remote via `CheckDivergence`)                                                 |
+| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                               |
 
 ---
 
@@ -172,12 +172,13 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 | `commit.go`     | `Commit`, `CommitEditor`, `CommitAllowEmpty`, `CommitAllowEmptyEditor`                                                                                                                      |
 | `detect.go`     | `DetectRemote`, `DetectDefaultBranch`                                                                                                                                                       |
 | `diff.go`       | `DiffStatCached`, `HasStagedChanges`, `DiffUnstagedFiles`, `CheckCachedDiff`                                                                                                                |
-| `divergence.go` | `AheadBehind`                                                                                                                                                                               |
+| `divergence.go` | `Divergence`, `CheckDivergence`                                                                                                                                                           |
 | `log.go`        | `RecentCommits`, `CommitInfo`                                                                                                                                                               |
 | `merge.go`      | `Merge`, `IsMergeInProgress`, `MergeContinue`, `MergeAbort`, `ConflictedFiles`                                                                                                              |
 | `patterns.go`   | `MatchSensitivePatterns`, `FilterExcluded`, `SanitizePatterns`                                                                                                                              |
 | `rebase.go`     | `Rebase`, `RebaseAbort`, `RebaseContinue`, `RebaseSkip`, `IsRebaseInProgress`, `CurrentRebasePatchInfo`                                                                                     |
-| `remote.go`     | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `HasUpstream`, `RemoteURL`, `DeleteRemoteBranch`, `IsNonFastForward` |
+| `remote.go`     | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `RemoteURL`, `DeleteRemoteBranch`, `IsNonFastForward`           |
+| `ref.go`        | `Qualify`, `StripRemote` — the ref vocabulary (idempotent qualification, prefix stripping) shared by the git layer                              |
 | `repository.go` | `IsRepository`                                                                                                                                                                              |
 | `stage.go`      | `AddAll`, `Add`, `AddPatch`                                                                                                                                                                 |
 | `stash.go`      | `StashList`, `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash`                                                                                           |

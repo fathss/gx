@@ -60,9 +60,14 @@ Cancel a paused merge and restore the pre-merge state.
 git diff --name-only --diff-filter=U
 ```
 
-Returns the list of files with unresolved merge conflicts. Returned as
-`[]string`, `nil` if none exist or on error. Works for conflicts from
-both merge and rebase operations.
+```go
+func ConflictedFiles(run runner.Executor) ([]string, error)
+```
+
+Returns the list of files with unresolved merge conflicts; an empty result
+means genuinely no conflicts, and read failures are returned as errors so
+the sync workflow never mistakes a broken repository for a clean one.
+Works for conflicts from both merge and rebase operations.
 
 Used by the sync workflow to include the conflicted file list in error
 messages when a rebase or merge is paused with conflicts.
