@@ -12,7 +12,7 @@ import (
 // Init detects repository settings and writes .gx/config.
 // remoteOverride and branchOverride bypass auto-detection when non-empty.
 // If force is true, overwrites any existing configuration.
-func Init(run *runner.Runner, remoteOverride, branchOverride string, force bool) error {
+func Init(run runner.Executor, remoteOverride, branchOverride string, force bool) error {
 	if config.Exists() && !force {
 		return &cli.Error{
 			Message: "Configuration already exists.",
@@ -44,13 +44,9 @@ func Init(run *runner.Runner, remoteOverride, branchOverride string, force bool)
 		}
 	}
 
-	cfg := &config.Config{
-		Remote:            remote,
-		DefaultBranch:     defaultBranch,
-		SyncStrategy:      "rebase",
-		SensitivePatterns:  config.DefaultSensitivePatterns,
-		ProtectedBranches: config.DefaultProtectedBranches,
-	}
+	cfg := config.Default()
+	cfg.Remote = remote
+	cfg.DefaultBranch = defaultBranch
 
 	if err := config.Save(cfg); err != nil {
 		return &cli.Error{

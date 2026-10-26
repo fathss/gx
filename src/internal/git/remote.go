@@ -1,38 +1,62 @@
 package git
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/fathss/gx/internal/runner"
-
-	"fmt"
 )
 
-func Fetch(run *runner.Runner, remote string) error {
-	return run.Run("fetch", remote)
+// IsNonFastForward reports whether err is a failed git command whose stderr
+// shows the remote rejected the update because it wasn't a fast-forward.
+// It is the one evidence-backed push diagnosis; every other failure stays
+// cause-agnostic (git's stderr is already streamed to the user).
+func IsNonFastForward(err error) bool {
+	var cmdErr *runner.CommandError
+	if !errors.As(err, &cmdErr) {
+		return false
+	}
+	return strings.Contains(cmdErr.Stderr, "non-fast-forward")
 }
 
-func FastForward(run *runner.Runner, remote, branch string) error {
-	target := fmt.Sprintf("%s/%s", remote, branch)
-	return run.Run("merge", "--ff-only", target)
+// IsRemoteRefMissing reports whether a failed push --delete means the remote
+// branch was already gone. With fetch --prune this is a race guard: another
+// collaborator may delete the branch between our fetch and our delete.
+func IsRemoteRefMissing(err error) bool {
+	var cmdErr *runner.CommandError
+	if !errors.As(err, &cmdErr) {
+		return false
+	}
+	return strings.Contains(cmdErr.Stderr, "remote ref does not exist")
+}
+
+// Fetch fetches the remote and prunes remote-tracking refs whose branch no
+// longer exists. Pruning keeps clean's merged-branch decision honest instead
+// of leaving stale refs that later fail `push --delete`.
+func Fetch(run runner.Executor, remote string) error {
+	return run.Run("fetch", "--prune", remote)
+}
+
+func FastForward(run runner.Executor, remote, branch string) error {
+	return run.Run("merge", "--ff-only", Qualify(remote, branch))
 }
 
 // RemoteExists returns true if the given remote name is configured.
-func RemoteExists(run *runner.Runner, name string) bool {
+func RemoteExists(run runner.Executor, name string) bool {
 	_, err := run.Output("remote", "get-url", name)
 	return err == nil
 }
 
 // RemoteBranchExists returns true if the remote-tracking branch ref exists.
-func RemoteBranchExists(run *runner.Runner, remote, branch string) bool {
-	_, err := run.Output("rev-parse", "--verify", remote+"/"+branch)
+func RemoteBranchExists(run runner.Executor, remote, branch string) bool {
+	_, err := run.Output("rev-parse", "--verify", Qualify(remote, branch))
 	return err == nil
 }
 
 // RemoteHEAD returns the branch that the remote's HEAD symbolic-ref points to,
 // e.g. "main" for origin/HEAD -> origin/main. Returns "" if the remote HEAD
 // cannot be resolved (new remote, detached remote HEAD, etc.).
-func RemoteHEAD(run *runner.Runner, remote string) string {
+func RemoteHEAD(run runner.Executor, remote string) string {
 	out, err := run.Output("symbolic-ref", "refs/remotes/"+remote+"/HEAD")
 	if err != nil || out == "" {
 		return ""
@@ -43,27 +67,27 @@ func RemoteHEAD(run *runner.Runner, remote string) string {
 }
 
 // Push pushes the current branch to remote without setting upstream.
-func Push(run *runner.Runner, remote, branch string) error {
+func Push(run runner.Executor, remote, branch string) error {
 	return run.Run("push", remote, branch)
 }
 
 // PushSetUpstream pushes and sets upstream tracking (-u).
-func PushSetUpstream(run *runner.Runner, remote, branch string) error {
+func PushSetUpstream(run runner.Executor, remote, branch string) error {
 	return run.Run("push", "-u", remote, branch)
 }
 
 // PushForceWithLease force-pushes with lease (safe force).
-func PushForceWithLease(run *runner.Runner, remote, branch string) error {
+func PushForceWithLease(run runner.Executor, remote, branch string) error {
 	return run.Run("push", "--force-with-lease", remote, branch)
 }
 
-// HasUpstream returns true if the branch has an upstream tracking branch configured.
-func HasUpstream(run *runner.Runner, branch string) bool {
-	_, err := run.Output("rev-parse", "--abbrev-ref", branch+"@{upstream}")
-	return err == nil
+// RemoteURL returns the URL of the given remote.
+func RemoteURL(run runner.Executor, remote string) (string, error) {
+	return run.Output("remote", "get-url", remote)
 }
 
-// RemoteURL returns the URL of the given remote.
-func RemoteURL(run *runner.Runner, remote string) (string, error) {
-	return run.Output("remote", "get-url", remote)
+// DeleteRemoteBranch deletes a branch on the remote with
+// `git push <remote> --delete <branch>`.
+func DeleteRemoteBranch(run runner.Executor, remote, branch string) error {
+	return run.Run("push", remote, "--delete", branch)
 }

@@ -1,9 +1,7 @@
 package workflow
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/fathss/gx/internal/cli"
@@ -23,19 +21,10 @@ import (
 //   - allowSensitive: if true, skip sensitive-pattern check
 //   - allowEmpty: if true, skip empty-commit confirmation
 //   - excludePatterns: glob patterns for files to exclude from staging
-func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, patchMode bool, allowSensitive bool, allowEmpty bool, excludePatterns []string) error {
+func Save(run runner.Executor, cfg *config.Config, files []string, msg string, patchMode bool, allowSensitive bool, allowEmpty bool, excludePatterns []string) error {
 	// 1. Pre-flight: block if rebase or merge in progress
-	if git.IsRebaseInProgress(run) {
-		return &cli.Error{
-			Message: "A rebase is already in progress.",
-			Hint:    "Resolve or abort the rebase first.\nUse gx sync --continue or git rebase --abort/--continue.",
-		}
-	}
-	if git.IsMergeInProgress(run) {
-		return &cli.Error{
-			Message: "A merge is already in progress.",
-			Hint:    "Resolve or abort the merge first.\nUse gx sync --continue or git merge --abort/--continue.",
-		}
+	if err := requireNoInProgress(inspect(run)); err != nil {
+		return err
 	}
 
 	// 2. Determine which files to stage
@@ -105,7 +94,7 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 			// Prompt for untracked files
 			var stageUntracked bool
 			if len(treeUntracked) > 0 {
-				stageUntracked, err = promptConfirm(fmt.Sprintf("Stage %d untracked file(s)?", len(treeUntracked)))
+				stageUntracked, err = prompts.Confirm(fmt.Sprintf("Stage %d untracked file(s)?", len(treeUntracked)))
 				if err != nil {
 					return err
 				}
@@ -155,9 +144,9 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 			if patchMode {
 				// Issue 10b: In patch mode, warn but don't block
 				run.Warnf(
-				"Sensitive file(s) detected in the working tree:\n  "+strings.Join(matches, "\n  "),
-				"In patch mode you can choose to skip hunks from these files.\nUse --allow-sensitive to suppress this warning.",
-			)
+					"Sensitive file(s) detected in the working tree:\n  "+strings.Join(matches, "\n  "),
+					"In patch mode you can choose to skip hunks from these files.\nUse --allow-sensitive to suppress this warning.",
+				)
 			} else {
 				msg := "Sensitive file(s) detected — refusing to stage:\n"
 				for _, m := range matches {
@@ -175,8 +164,15 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 	// Only warn when there are BOTH staged changes AND unstaged tracked-file changes.
 	if !hasSpecificFiles && !patchMode && len(filesToStage) > 0 {
 		hasUnstaged, _ := git.DiffUnstagedFiles(run)
-		if git.HasStagedChanges(run) && hasUnstaged != "" {
-			warned, err := promptConfirm("Some files are already staged. Running gx save will stage all remaining changes in tracked files, overwriting any partial staging. Continue?")
+		hasStaged, stagedErr := git.HasStagedChanges(run)
+		if stagedErr != nil {
+			return &cli.Error{
+				Message: "Failed to check staged changes.",
+				Hint:    "Run `git status` to inspect the index.",
+			}
+		}
+		if hasStaged && hasUnstaged != "" {
+			warned, err := prompts.Confirm("Some files are already staged. Running gx save will stage all remaining changes in tracked files, overwriting any partial staging. Continue?")
 			if err != nil {
 				return err
 			}
@@ -235,7 +231,7 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 
 	// 6. Empty commit guard
 	if !allowEmpty && !git.NonEmptyStatus(run) {
-		confirmed, err := promptConfirm("Nothing staged — commit anyway?")
+		confirmed, err := prompts.Confirm("Nothing staged — commit anyway?")
 		if err != nil {
 			return err
 		}
@@ -248,7 +244,13 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 	}
 
 	// 7. Conflict marker detection (Issue 15)
-	hasStaged := git.HasStagedChanges(run)
+	hasStaged, stagedErr := git.HasStagedChanges(run)
+	if stagedErr != nil {
+		return &cli.Error{
+			Message: "Failed to check staged changes.",
+			Hint:    "Run `git status` to inspect the index.",
+		}
+	}
 	if hasStaged {
 		if err := checkConflictMarkers(run); err != nil {
 			return err
@@ -300,7 +302,7 @@ func Save(run *runner.Runner, cfg *config.Config, files []string, msg string, pa
 
 // checkConflictMarkers runs git diff --cached --check to detect unresolved
 // conflict markers in staged files. If found, prompts the user to confirm.
-func checkConflictMarkers(run *runner.Runner) error {
+func checkConflictMarkers(run runner.Executor) error {
 	out, err := git.CheckCachedDiff(run)
 	if err == nil || out == "" {
 		return nil
@@ -309,6 +311,9 @@ func checkConflictMarkers(run *runner.Runner) error {
 	//   file.txt:7: leftover conflict marker
 	conflicted := make(map[string]bool)
 	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(strings.ToLower(line), "conflict marker") {
+			continue
+		}
 		if idx := strings.Index(line, ":"); idx > 0 {
 			conflicted[line[:idx]] = true
 		}
@@ -321,7 +326,7 @@ func checkConflictMarkers(run *runner.Runner) error {
 	for f := range conflicted {
 		fmt.Printf("  %s\n", f)
 	}
-	confirmed, err := promptConfirm("Commit with unresolved conflict markers?")
+	confirmed, err := prompts.Confirm("Commit with unresolved conflict markers?")
 	if err != nil {
 		return err
 	}
@@ -332,22 +337,4 @@ func checkConflictMarkers(run *runner.Runner) error {
 		}
 	}
 	return nil
-}
-
-// promptConfirm asks the user a yes/no question on the terminal.
-// Returns true if the user answered y or Y. Returns false for n, N, or empty.
-func promptConfirm(prompt string) (bool, error) {
-	fmt.Printf("%s [y/N]: ", prompt)
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return false, &cli.Error{
-				Message: fmt.Sprintf("Failed to read input: %s.", err),
-			}
-		}
-		// EOF (e.g. pipe) — treat as no
-		return false, nil
-	}
-	answer := strings.TrimSpace(scanner.Text())
-	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }

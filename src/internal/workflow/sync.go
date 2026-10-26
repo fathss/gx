@@ -3,7 +3,6 @@ package workflow
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/config"
@@ -11,42 +10,84 @@ import (
 	"github.com/fathss/gx/internal/runner"
 )
 
-func Sync(run *runner.Runner, cfg *config.Config, argsProvided bool, continueMode bool, flagRebase bool, flagMerge bool, abortMode bool, skipMode bool) error {
-	// --abort: abort in-progress rebase or merge, pop gx stash if present.
-	// Only works for gx-orchestrated operations (has gx stash). Manual
-	// rebases/merges block with a message telling the user to use git directly.
-	if abortMode {
-		rebaseInProgress := git.IsRebaseInProgress(run)
-		mergeInProgress := git.IsMergeInProgress(run)
-		hasGXStash := git.HasGXStash(run)
+// SyncOptions carries the invocation mode for gx sync. Named fields so call
+// sites and flag-conflict validation read as one structured interface.
+type SyncOptions struct {
+	Continue bool
+	Rebase   bool
+	Merge    bool
+	Abort    bool
+	Skip     bool
+}
 
-		switch {
-		case rebaseInProgress && !hasGXStash:
+func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
+	release, err := acquireSyncLock(run)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	// 1. Determine current branch and classify repository state. The gx
+	// ownership marker is authoritative when present; the branch it names is
+	// used to scope every stash lookup (HEAD is detached during a rebase).
+	current, err := git.CurrentBranch(run)
+	if err != nil {
+		return &cli.Error{
+			Message: "Failed to determine current branch.",
+		}
+	}
+	verdict, stateBranch, hasMarker := inspectForSync(run, current)
+	// A marker with no paused operation is stale. If it belongs to another
+	// branch (the user aborted a gx rebase manually and switched branches),
+	// leave that branch's stash untouched; restoring it here would leak one
+	// branch's work into another. Clear only the marker and sync as Q1.
+	if verdict == q2OrphanStash && hasMarker && stateBranch != current {
+		if err := git.ClearGXSyncState(run); err != nil {
+			run.Warnf("Failed to clear a stale in-progress sync marker.", fmt.Sprintf("Error: %v", err))
+		}
+		verdict = q1Idle
+		stateBranch = current
+		hasMarker = false
+	}
+	sessionGit := newProdSyncGit(run, stateBranch)
+
+	// --abort: abort in-progress rebase or merge, settle the gx stash if present.
+	// Only works for gx-orchestrated operations (marker or branch-scoped stash).
+	// Manual rebases/merges block with a message telling the user to use git.
+	if opts.Abort {
+		switch verdict {
+		case q3ManualRebase:
 			// Q3: manual rebase — gx sync only manages its own operations
 			return &cli.Error{
 				Message: "A rebase is already in progress.",
 				Hint:    "gx sync only manages its own sync operations.\nUse git rebase --abort directly.",
 			}
 
-		case rebaseInProgress && hasGXStash:
-			// Q4: gx-orchestrated rebase — abort, then pop stash
+		case q4GXRebase:
+			// Q4: gx-orchestrated rebase — abort, then settle
 			fmt.Println("Aborting rebase...")
-			return abortWithStashPop(run, git.RebaseAbort)
+			return abortWithStash(run, sessionGit, git.RebaseAbort)
 
-		case mergeInProgress && !hasGXStash:
+		case q5ManualMerge:
 			// Q5: manual merge — gx sync only manages its own operations
 			return &cli.Error{
 				Message: "A merge is already in progress.",
 				Hint:    "gx sync only manages its own sync operations.\nUse git merge --abort directly.",
 			}
 
-		case mergeInProgress && hasGXStash:
-			// Q6: gx-orchestrated merge — abort, then pop stash
+		case q6GXMerge:
+			// Q6: gx-orchestrated merge — abort, then settle
 			fmt.Println("Aborting merge...")
-			return abortWithStashPop(run, git.MergeAbort)
+			return abortWithStash(run, sessionGit, git.MergeAbort)
 
 		default:
-			// Q1 or Q2: nothing to abort
+			// Q1 or Q2: nothing to abort. A marker with no paused operation is
+			// stale (e.g. the user aborted manually); clear it.
+			if hasMarker {
+				if err := sessionGit.ClearState(); err != nil {
+					sessionGit.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
+				}
+			}
 			return &cli.Error{
 				Message: "Nothing to abort.",
 				Hint:    "Run gx sync to start a new sync.",
@@ -54,63 +95,53 @@ func Sync(run *runner.Runner, cfg *config.Config, argsProvided bool, continueMod
 		}
 	}
 
-	// 1. Determine current branch
-	current, err := git.CurrentBranch(run)
-	if err != nil {
-		return &cli.Error{
-			Message: "Failed to determine current branch.",
-		}
-	}
-
-	// 3. State machine for rebase/merge + stash interactions.
+	// 3. State machine for rebase/merge + stash interactions — classified
+	// once by inspectForSync() (the Q-table lives in repostate.go); this
+	// switch is the interpretation for gx sync.
 	//
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
-	//    |   | RebaseInProgress | MergeInProgress  | HasGXStash    | Behavior                                |
+	//    |   | RebaseInProgress | MergeInProgress  | GXOwned       | Behavior                                |
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
 	//    | 1 | false            | false            | false         | normal flow                             |
-	//    | 2 | false            | false            | true          | warn orphaned, proceed                  |
+	//    | 2 | false            | false            | true          | restore orphan, proceed                 |
 	//    | 3 | true             | false            | false         | block: manual rebase (--continue denied) |
 	//    | 4 | true             | false            | true          | block: gx rebase (--continue allowed)    |
 	//    | 5 | false            | true             | false         | block: manual merge (--continue denied)  |
 	//    | 6 | false            | true             | true          | block: gx merge (--continue allowed)     |
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
-	rebaseInProgress := git.IsRebaseInProgress(run)
-	mergeInProgress := git.IsMergeInProgress(run)
-	hasGXStash := git.HasGXStash(run)
-
-	switch {
-	case rebaseInProgress && hasGXStash:
+	switch verdict {
+	case q4GXRebase:
 		// Q4: gx-orchestrated rebase — --continue resumes, --skip skips, plain blocks
-		if skipMode {
-			return autoSkipSync(run)
+		if opts.Skip {
+			return autoSkipSync(run, sessionGit)
 		}
-		if continueMode {
-			return autoContinueSync(run)
+		if opts.Continue {
+			return autoContinueSync(run, sessionGit)
 		}
 		return &cli.Error{
 			Message: "A rebase is already in progress.",
 			Hint:    "Run gx sync --continue to resume, gx sync --skip to skip, or gx sync --abort to cancel.",
 		}
 
-	case mergeInProgress && hasGXStash:
+	case q6GXMerge:
 		// Q6: gx-orchestrated merge — --continue resumes, plain blocks
-		if skipMode {
+		if opts.Skip {
 			return &cli.Error{
 				Message: "--skip is not valid during a merge.",
 				Hint:    "Use git merge --continue or --abort directly.",
 			}
 		}
-		if continueMode {
-			return autoContinueMergeSync(run)
+		if opts.Continue {
+			return autoContinueMergeSync(run, sessionGit)
 		}
 		return &cli.Error{
 			Message: "A merge is already in progress.",
 			Hint:    "Run gx sync --continue to resume, or gx sync --abort to cancel.",
 		}
 
-	case rebaseInProgress && !hasGXStash:
+	case q3ManualRebase:
 		// Q3: manual rebase — gx sync only manages its own operations
-		if skipMode {
+		if opts.Skip {
 			return &cli.Error{
 				Message: "A rebase is already in progress.",
 				Hint:    "gx sync only manages its own sync operations.\nUse git rebase --skip directly.",
@@ -121,252 +152,225 @@ func Sync(run *runner.Runner, cfg *config.Config, argsProvided bool, continueMod
 			Hint:    "gx sync only manages its own sync operations.\nUse git rebase --continue, --skip, or --abort directly.",
 		}
 
-	case mergeInProgress && !hasGXStash:
+	case q5ManualMerge:
 		// Q5: manual merge — gx sync only manages its own operations
 		return &cli.Error{
 			Message: "A merge is already in progress.",
 			Hint:    "gx sync only manages its own sync operations.\nUse git merge --continue or --abort directly.",
 		}
 
-	case !rebaseInProgress && !mergeInProgress && (continueMode || skipMode):
-		// --continue or --skip but nothing paused
-		// Issue 09c: check if rebase already completed
-		return &cli.Error{
-			Message: "Nothing to continue. Rebase appears to have completed already.",
-			Hint:    "Run git status to verify the state, then gx sync to start a fresh sync.",
-		}
-
-	case !rebaseInProgress && !mergeInProgress && hasGXStash:
-		// Q2: orphaned gx stash — restore before proceeding
-		fmt.Println("Restoring stashed changes from previous sync...")
-		if err := git.StashPop(run); err != nil {
-			return &cli.Error{
-				Message: "Failed to restore stashed changes.",
-				Hint:    "Run git stash list to inspect stashes, then git stash pop manually.",
-			}
-		}
-	}
-
-	// Detached HEAD is not supported (only reaches here in Q1 or Q2)
-	if current == "" {
-		return &cli.Error{
-			Message: "Detached HEAD is not supported.",
-			Hint:    "Checkout a branch first.",
-		}
-	}
-
-	// 4. Stash dirty working tree before touching branches.
-	//    Skips stash entirely when working tree is clean.
-	needsPop := !git.IsClean(run)
-	if needsPop {
-		label := fmt.Sprintf("%s%s/%d", git.SyncStashPrefix, current, time.Now().Unix())
-		fmt.Println("Stashing local changes...")
-		if err := git.StashPush(run, label); err != nil {
-			return &cli.Error{
-				Message: "Failed to stash local changes.",
-				Hint:    "Commit or discard your changes manually.",
-			}
-		}
-	}
-
-	// Best-effort restore on failure paths: pop stash to recover original state.
-	restoreStash := func() {
-		if needsPop {
-			if err := git.StashPop(run); err != nil {
-				run.Warnf("Failed to restore stashed changes — your changes remain in git stash.", fmt.Sprintf("Error: %v", err))
-			}
-		}
-	}
-
-	// 5. Validate remote exists, then fetch
-	if !git.RemoteExists(run, cfg.Remote) {
-		restoreStash()
-		return &cli.Error{
-			Message: fmt.Sprintf("Remote '%s' not found.", cfg.Remote),
-			Hint:    "Run `git remote -v` to list available remotes, then `gx config remote <name>` to update.",
-		}
-	}
-	if err := git.Fetch(run, cfg.Remote); err != nil {
-		restoreStash()
-		return &cli.Error{
-			Message: "Failed to fetch remote.",
-			Hint:    "Check network connection or remote configuration.",
-		}
-	}
-
-	// Issue 06: Check for stale remote default branch after fetch
-	detectedBranch := git.RemoteHEAD(run, cfg.Remote)
-	if detectedBranch != "" && detectedBranch != cfg.DefaultBranch {
-		run.Warnf(
-			fmt.Sprintf("Remote default branch appears to be '%s' but gx is configured for '%s'.", detectedBranch, cfg.DefaultBranch),
-			fmt.Sprintf("Update config with: gx config defaultBranch %s", detectedBranch),
-		)
-	}
-
-	// 6. If already on base branch — fast-forward only (fetch already done above)
-	if current == cfg.DefaultBranch {
-		if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
-			restoreStash()
-			return &cli.Error{
-				Message: fmt.Sprintf("Remote branch '%s/%s' not found.", cfg.Remote, cfg.DefaultBranch),
-				Hint:    "Has it been deleted? Check the remote repository.",
-			}
-		}
-		if err := git.FastForward(run, cfg.Remote, cfg.DefaultBranch); err != nil {
-			restoreStash()
-			return &cli.Error{
-				Message: fmt.Sprintf("Local branch '%s' has diverged from '%s/%s'.", cfg.DefaultBranch, cfg.Remote, cfg.DefaultBranch),
-				Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + cfg.DefaultBranch + " " + cfg.Remote + "/" + cfg.DefaultBranch + "\nOr rebase and force-push:\n  git rebase " + cfg.Remote + "/" + cfg.DefaultBranch + "\n  git push --force-with-lease",
-			}
-		}
-		if needsPop {
-			fmt.Println("Restoring stashed changes...")
-			if err := git.StashPop(run); err != nil {
-				return &cli.Error{
-					Message: "Stash pop failed — conflicts detected.",
-					Hint:    "Resolve the conflicts above, then run: git stash drop",
+	case q1Idle, q2OrphanStash:
+		// Detached HEAD with no paused operation: refuse before touching any
+		// stash. (A paused gx rebase is detached too, but classifies Q4.)
+		if current == "" {
+			if hasMarker {
+				if err := sessionGit.ClearState(); err != nil {
+					sessionGit.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
 				}
 			}
-		}
-		// Issue 07: Clean up any orphaned gx-sync stashes after successful sync
-		if err := git.DropGXStash(run); err != nil {
-			run.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
-		}
-		return nil
-	}
-
-	// 7. Switch to base branch, fast-forward, return to original
-	if !git.LocalBranchExists(run, cfg.DefaultBranch) {
-		restoreStash()
-		return &cli.Error{
-			Message: fmt.Sprintf("Local branch '%s' does not exist.", cfg.DefaultBranch),
-			Hint:    fmt.Sprintf("Create it with: git checkout -b %s %s/%s\nThen run gx sync again.", cfg.DefaultBranch, cfg.Remote, cfg.DefaultBranch),
-		}
-	}
-	if err := git.Checkout(run, cfg.DefaultBranch); err != nil {
-		restoreStash()
-		return &cli.Error{
-			Message: fmt.Sprintf("Failed to checkout %s.", cfg.DefaultBranch),
-			Hint:    "Check git status and switch back manually.",
-		}
-	}
-
-	ffErr := git.FastForward(run, cfg.Remote, cfg.DefaultBranch)
-
-	// Always attempt to restore the original branch
-	if checkoutErr := git.Checkout(run, current); checkoutErr != nil {
-		if ffErr != nil {
-			restoreStash()
 			return &cli.Error{
+				Message: "Detached HEAD is not supported.",
+				Hint:    "Checkout a branch first.",
+			}
+		}
+		if opts.Continue || opts.Skip {
+			// --continue or --skip but nothing paused. Clear a stale marker so
+			// the next run starts clean.
+			if hasMarker {
+				if err := sessionGit.ClearState(); err != nil {
+					sessionGit.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
+				}
+			}
+			return &cli.Error{
+				Message: "Nothing to continue. Rebase appears to have completed already.",
+				Hint:    "Run git status to verify the state, then gx sync to start a fresh sync.",
+			}
+		}
+		if verdict == q2OrphanStash {
+			// Q2: orphaned gx restore — settle the adopted session, then proceed
+			if err := resume(sessionGit).settle(settleRestore); err != nil {
+				return err
+			}
+		}
+	}
+
+	// 4. Acquire the session: stash the dirty working tree (skipped when clean).
+	session, err := begin(sessionGit, current)
+	if err != nil {
+		return err
+	}
+
+	// 5–8. Act phase. Every exit settles through the session: an error
+	// restores the stash, a conflict pause keeps it, success commits it.
+	return session.run(func() (settle, error) {
+		if !git.RemoteExists(run, cfg.Remote) {
+			return settleRestore, &cli.Error{
+				Message: fmt.Sprintf("Remote '%s' not found.", cfg.Remote),
+				Hint:    "Run `git remote -v` to list available remotes, then `gx config remote <name>` to update.",
+			}
+		}
+		if err := git.Fetch(run, cfg.Remote); err != nil {
+			return settleRestore, &cli.Error{
+				Message: "Failed to fetch remote.",
+				Hint:    "Check the error above; verify the remote with `git remote -v`.",
+			}
+		}
+
+		// Issue 06: Check for stale remote default branch after fetch
+		detectedBranch := git.RemoteHEAD(run, cfg.Remote)
+		if detectedBranch != "" && detectedBranch != cfg.DefaultBranch {
+			run.Warnf(
+				fmt.Sprintf("Remote default branch appears to be '%s' but gx is configured for '%s'.", detectedBranch, cfg.DefaultBranch),
+				fmt.Sprintf("Update config with: gx config defaultBranch %s", detectedBranch),
+			)
+		}
+
+		// 6. If already on base branch — fast-forward only (fetch already done above)
+		if current == cfg.DefaultBranch {
+			baseRef := git.Qualify(cfg.Remote, cfg.DefaultBranch)
+			if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
+				return settleRestore, &cli.Error{
+					Message: fmt.Sprintf("Remote branch '%s' not found.", baseRef),
+					Hint:    "Has it been deleted? Check the remote repository.",
+				}
+			}
+			if err := git.FastForward(run, cfg.Remote, cfg.DefaultBranch); err != nil {
+				return settleRestore, &cli.Error{
+					Message: fmt.Sprintf("Local branch '%s' has diverged from '%s'.", cfg.DefaultBranch, baseRef),
+					Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + cfg.DefaultBranch + " " + baseRef + "\nOr rebase and force-push:\n  git rebase " + baseRef + "\n  git push --force-with-lease",
+				}
+			}
+			return settleCommit, nil
+		}
+
+		// 7. Switch to base branch, fast-forward, return to original
+		if !git.LocalBranchExists(run, cfg.DefaultBranch) {
+			return settleRestore, &cli.Error{
+				Message: fmt.Sprintf("Local branch '%s' does not exist.", cfg.DefaultBranch),
+				Hint:    fmt.Sprintf("Create it with: git checkout -b %s %s/%s\nThen run gx sync again.", cfg.DefaultBranch, cfg.Remote, cfg.DefaultBranch),
+			}
+		}
+		if err := git.Checkout(run, cfg.DefaultBranch); err != nil {
+			return settleRestore, &cli.Error{
+				Message: fmt.Sprintf("Failed to checkout %s.", cfg.DefaultBranch),
+				Hint:    "Check git status and switch back manually.",
+			}
+		}
+
+		ffErr := git.FastForward(run, cfg.Remote, cfg.DefaultBranch)
+
+		// Always attempt to restore the original branch
+		if checkoutErr := git.Checkout(run, current); checkoutErr != nil {
+			if ffErr != nil {
+				return settleRestore, &cli.Error{
+					Message: fmt.Sprintf("Failed to fast-forward %s.", cfg.DefaultBranch),
+					Hint:    "Your local base branch has diverged. Inspect it manually.",
+				}
+			}
+			return settleRestore, &cli.Error{
+				Message: fmt.Sprintf("Failed to checkout %s.", current),
+				Hint:    "Check git status and switch back manually.",
+			}
+		}
+
+		if ffErr != nil {
+			if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
+				return settleRestore, &cli.Error{
+					Message: fmt.Sprintf("Remote branch '%s/%s' not found.", cfg.Remote, cfg.DefaultBranch),
+					Hint:    "Has it been deleted? Check the remote repository.",
+				}
+			}
+			return settleRestore, &cli.Error{
 				Message: fmt.Sprintf("Failed to fast-forward %s.", cfg.DefaultBranch),
 				Hint:    "Your local base branch has diverged. Inspect it manually.",
 			}
 		}
-		restoreStash()
-		return &cli.Error{
-			Message: fmt.Sprintf("Failed to checkout %s.", current),
-			Hint:    "Check git status and switch back manually.",
-		}
-	}
 
-	if ffErr != nil {
-		restoreStash()
-		if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
-			return &cli.Error{
-				Message: fmt.Sprintf("Remote branch '%s/%s' not found.", cfg.Remote, cfg.DefaultBranch),
-				Hint:    "Has it been deleted? Check the remote repository.",
+		// 8. Rebase or merge. Record ownership first: a clean tree creates no
+		// stash, so the marker is what makes a conflict from a clean tree
+		// resumable via --continue/--abort. The marker is cleared on every
+		// settle except pause.
+		if err := sessionGit.MarkState(); err != nil {
+			return settleRestore, &cli.Error{
+				Message: "Failed to record the in-progress sync state.",
+				Hint:    "Check that the repository is writable, then run gx sync again.",
 			}
 		}
-		return &cli.Error{
-			Message: fmt.Sprintf("Failed to fast-forward %s.", cfg.DefaultBranch),
-			Hint:    "Your local base branch has diverged. Inspect it manually.",
-		}
-	}
 
-	// 8. Rebase or merge
-	// Use flag override if provided, otherwise config
-	strategy := cfg.SyncStrategy
-	switch {
-	case flagRebase:
-		strategy = "rebase"
-	case flagMerge:
-		strategy = "merge"
-	}
-	switch strategy {
-	case "merge":
-		if err := git.Merge(run, cfg.DefaultBranch); err != nil {
-			if git.IsMergeInProgress(run) {
-				// Leave merge state, preserve stash — user resolves and re-runs
-				msg := "Merge stopped because of conflicts."
-				if files := git.ConflictedFiles(run); len(files) > 0 {
-					msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
+		// Use flag override if provided, otherwise config
+		strategy := cfg.SyncStrategy
+		switch {
+		case opts.Rebase:
+			strategy = "rebase"
+		case opts.Merge:
+			strategy = "merge"
+		}
+		switch strategy {
+		case "merge":
+			if err := git.Merge(run, cfg.DefaultBranch); err != nil {
+				if git.IsMergeInProgress(run) {
+					// Leave merge state, preserve stash — user resolves and re-runs
+					msg := "Merge stopped because of conflicts."
+					files, filesErr := git.ConflictedFiles(run)
+					switch {
+					case filesErr != nil:
+						msg += " The conflicted files could not be listed."
+					case len(files) > 0:
+						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
+					}
+					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
+					if session.acquired {
+						hint += " Your changes were stashed and will be restored automatically."
+					}
+					return settlePause, &cli.Error{
+						Message: msg,
+						Hint:    hint,
+					}
 				}
-				hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
-				if needsPop {
-					hint += " Your changes were stashed and will be restored automatically."
-				}
-				return &cli.Error{
-					Message: msg,
-					Hint:    hint,
+				return settleRestore, &cli.Error{
+					Message: "Merge failed.",
 				}
 			}
-			restoreStash()
-			return &cli.Error{
-				Message: "Merge failed.",
+		default:
+			if err := git.Rebase(run, cfg.DefaultBranch); err != nil {
+				if git.IsRebaseInProgress(run) {
+					// Leave the rebase in progress — user resolves and re-runs gx sync.
+					// The session settles as pause — the stash stays for --continue.
+					msg := "Rebase stopped because of conflicts."
+					if info := git.CurrentRebasePatchInfo(run); info != "" {
+						msg = fmt.Sprintf("Rebase stopped because of conflicts while applying commit %s.", info)
+					}
+					files, filesErr := git.ConflictedFiles(run)
+					switch {
+					case filesErr != nil:
+						msg += " The conflicted files could not be listed."
+					case len(files) > 0:
+						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
+					}
+					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
+					if session.acquired {
+						hint += " Your changes were stashed and will be restored automatically."
+					}
+					return settlePause, &cli.Error{
+						Message: msg,
+						Hint:    hint,
+					}
+				}
+				// Non-conflict rebase failure
+				return settleRestore, &cli.Error{
+					Message: "Rebase failed.",
+				}
 			}
 		}
-	default:
-		if err := git.Rebase(run, cfg.DefaultBranch); err != nil {
-			if git.IsRebaseInProgress(run) {
-				// Leave the rebase in progress — user resolves and re-runs gx sync.
-				// Do NOT restore stash — it stays so gx sync --continue can pop it.
-				msg := "Rebase stopped because of conflicts."
-				if info := git.CurrentRebasePatchInfo(run); info != "" {
-					msg = fmt.Sprintf("Rebase stopped because of conflicts while applying commit %s.", info)
-				}
-				if files := git.ConflictedFiles(run); len(files) > 0 {
-					msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
-				}
-				hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
-				if needsPop {
-					hint += " Your changes were stashed and will be restored automatically."
-				}
-				return &cli.Error{
-					Message: msg,
-					Hint:    hint,
-				}
-			}
-			// Non-conflict rebase failure
-			restoreStash()
-			return &cli.Error{
-				Message: "Rebase failed.",
-			}
-		}
-	}
 
-	// 9. Pop stash (only reached on success)
-	if needsPop {
-		fmt.Println("Restoring stashed changes...")
-		if err := git.StashPop(run); err != nil {
-			return &cli.Error{
-				Message: "Stash pop failed — conflicts detected.",
-				Hint:    "Resolve the conflicts above, then run: git stash drop",
-			}
-		}
-	}
-
-	// Issue 07: Clean up any orphaned gx-sync stashes after successful sync
-	if err := git.DropGXStash(run); err != nil {
-		run.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
-	}
-
-	return nil
+		return settleCommit, nil
+	})
 }
 
 // autoContinueSync continues an in-progress rebase. When a gx stash is present
-// (from a previous gx sync run), it pops the stash after the rebase completes.
-// Only called for gx-orchestrated rebases (Q4).
-func autoContinueSync(run *runner.Runner) error {
+// (from a previous gx sync run), the resumed session commits it after the
+// rebase completes. Only called for gx-orchestrated rebases (Q4).
+func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		fmt.Printf("Continuing rebase — applying %s...\n", info)
 	} else {
@@ -375,7 +379,13 @@ func autoContinueSync(run *runner.Runner) error {
 
 	if err := git.RebaseContinue(run); err != nil {
 		if git.IsRebaseInProgress(run) {
-			files := git.ConflictedFiles(run)
+			files, filesErr := git.ConflictedFiles(run)
+			if filesErr != nil {
+				return &cli.Error{
+					Message: "There are still unresolved conflicts, but the conflicted files could not be listed.",
+					Hint:    "Resolve the remaining conflicts, stage the files, then run gx sync --continue again.",
+				}
+			}
 			if len(files) > 0 {
 				// Still unresolved conflicts
 				msg := "There are still unresolved conflicts."
@@ -403,30 +413,27 @@ func autoContinueSync(run *runner.Runner) error {
 		}
 	}
 
-	// Rebase succeeded — pop the gx stash if one was left by a previous gx sync
-	if git.HasGXStash(run) {
-		fmt.Println("Restoring stashed changes...")
-		if err := git.StashPop(run); err != nil {
-			return &cli.Error{
-				Message: "Stash pop failed — conflicts detected.",
-				Hint:    "Resolve the conflicts above, then run: git stash drop",
-			}
-		}
-	}
-
-	return nil
+	// Rebase succeeded — commit the resumed session (pop + orphan cleanup)
+	return resume(sessionGit).settle(settleCommit)
 }
 
 // autoContinueMergeSync continues a paused merge. Behaves like autoContinueSync
-// but for merges: runs git merge --continue, then pops the gx stash if present.
-func autoContinueMergeSync(run *runner.Runner) error {
+// but for merges: runs git merge --continue, then commits the resumed session.
+func autoContinueMergeSync(run runner.Executor, sessionGit syncGit) error {
 	fmt.Println("Continuing merge...")
 
 	if err := git.MergeContinue(run); err != nil {
 		if git.IsMergeInProgress(run) {
 			// Still unresolved conflicts
+			files, filesErr := git.ConflictedFiles(run)
+			if filesErr != nil {
+				return &cli.Error{
+					Message: "There are still unresolved conflicts, but the conflicted files could not be listed.",
+					Hint:    "Resolve the remaining conflicts, stage the files, then run gx sync --continue again.",
+				}
+			}
 			msg := "There are still unresolved conflicts."
-			if files := git.ConflictedFiles(run); len(files) > 0 {
+			if len(files) > 0 {
 				msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
 			}
 			return &cli.Error{
@@ -439,44 +446,28 @@ func autoContinueMergeSync(run *runner.Runner) error {
 		}
 	}
 
-	// Merge succeeded — pop the gx stash if one was left by a previous gx sync
-	if git.HasGXStash(run) {
-		fmt.Println("Restoring stashed changes...")
-		if err := git.StashPop(run); err != nil {
-			return &cli.Error{
-				Message: "Stash pop failed — conflicts detected.",
-				Hint:    "Resolve the conflicts above, then run: git stash drop",
-			}
-		}
-	}
-
-	return nil
+	// Merge succeeded — commit the resumed session (pop + orphan cleanup)
+	return resume(sessionGit).settle(settleCommit)
 }
 
-// abortWithStashPop aborts an in-progress operation (rebase or merge) via the
-// provided abortFn, then pops the gx stash to restore the dirty working tree.
-// If the abort fails, returns an error without attempting to pop the stash.
-func abortWithStashPop(run *runner.Runner, abortFn func(*runner.Runner) error) error {
+// abortWithStash aborts an in-progress operation (rebase or merge) via the
+// provided abortFn, then commits the resumed session to restore the dirty
+// working tree. If the abort fails, returns an error without settling the
+// stash.
+func abortWithStash(run runner.Executor, sessionGit syncGit, abortFn func(runner.Executor) error) error {
 	if err := abortFn(run); err != nil {
 		return &cli.Error{
 			Message: "Failed to abort the in-progress operation.",
 			Hint:    "Check git status and resolve manually.",
 		}
 	}
-	fmt.Println("Restoring stashed changes...")
-	if err := git.StashPop(run); err != nil {
-		return &cli.Error{
-			Message: "Stash pop failed — conflicts detected.",
-			Hint:    "Resolve the conflicts above, then run: git stash drop",
-		}
-	}
-	return nil
+	return resume(sessionGit).settle(settleCommit)
 }
 
 // autoSkipSync skips the currently-applying commit during a gx-orchestrated
-// rebase. After the skip, if the rebase is still in progress, it informs the
-// user. If the rebase finished, it pops the gx stash.
-func autoSkipSync(run *runner.Runner) error {
+// rebase. If the rebase is still in progress afterwards, the session stays
+// paused (stash kept). When the rebase finished, the session commits.
+func autoSkipSync(run runner.Executor, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		fmt.Printf("Skipping commit %s...\n", info)
 	} else {
@@ -505,17 +496,7 @@ func autoSkipSync(run *runner.Runner) error {
 		return nil
 	}
 
-	// Rebase finished after skip — pop stash
+	// Rebase finished after skip — commit the resumed session
 	fmt.Println("Rebase completed.")
-	if git.HasGXStash(run) {
-		fmt.Println("Restoring stashed changes...")
-		if err := git.StashPop(run); err != nil {
-			return &cli.Error{
-				Message: "Stash pop failed — conflicts detected.",
-				Hint:    "Resolve the conflicts above, then run: git stash drop",
-			}
-		}
-	}
-	return nil
+	return resume(sessionGit).settle(settleCommit)
 }
-

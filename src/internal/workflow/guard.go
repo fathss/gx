@@ -8,7 +8,7 @@ import (
 )
 
 // RequireRepository returns an error when not inside a git repository.
-func RequireRepository(run *runner.Runner) error {
+func RequireRepository(run runner.Executor) error {
 	if !git.IsRepository(run) {
 		return &cli.Error{
 			Message: "Not inside a Git repository.",
