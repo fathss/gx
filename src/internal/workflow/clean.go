@@ -29,6 +29,17 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 
 	current, _ := git.CurrentBranch(run)
 
+	// Branches checked out in any worktree cannot be deleted with `git
+	// branch -d`. Exclude them explicitly instead of relying on git's "+ "
+	// listing marker being dropped by the parser.
+	worktrees, err := git.WorktreeBranches(run)
+	if err != nil {
+		return &cli.Error{
+			Message: "Failed to list git worktrees.",
+			Hint:    "Check that `git worktree list` works in this repository.",
+		}
+	}
+
 	// 2. Local candidates: merged into local defaultBranch.
 	localCandidates, err := git.MergedBranches(run, cfg.DefaultBranch)
 	if err != nil {
@@ -37,7 +48,8 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 			Hint:    "Check that the configured defaultBranch exists locally.",
 		}
 	}
-	filteredLocal := filterLocalBranches(localCandidates, cfg, current)
+	filteredLocal := filterLocalBranches(localCandidates, cfg, current, worktrees)
+	warnSkippedWorktrees(run, localCandidates, cfg, current, worktrees)
 
 	// 3. Remote-tracking candidates: merged into <remote>/<defaultBranch>.
 	remoteCandidates, err := git.MergedRemoteBranches(run, cfg.Remote, cfg.DefaultBranch)
@@ -117,6 +129,12 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	if doRemoteDelete {
 		for _, br := range remoteToDelete {
 			if err := git.DeleteRemoteBranch(run, cfg.Remote, br); err != nil {
+				// Another collaborator may have deleted the branch between our
+				// fetch and our push. The desired end state is already true.
+				if git.IsRemoteRefMissing(err) {
+					pruned++
+					continue
+				}
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -157,16 +175,36 @@ func filterBranches(candidates []string, cfg *config.Config) []string {
 	return out
 }
 
-// filterLocalBranches applies filterBranches and additionally drops the
-// current branch. Remote-tracking candidates deliberately skip that check:
-// origin/<current> stays prunable while its local counterpart is checked out.
-func filterLocalBranches(candidates []string, cfg *config.Config, current string) []string {
+// filterLocalBranches applies filterBranches and additionally drops branches
+// that cannot be deleted locally: the current branch and any branch checked
+// out in a worktree. Remote-tracking candidates deliberately skip both checks:
+// origin/<branch> stays prunable while its local counterpart is in use.
+func filterLocalBranches(candidates []string, cfg *config.Config, current string, worktrees map[string]bool) []string {
 	var out []string
 	for _, name := range filterBranches(candidates, cfg) {
-		if current != "" && name == current {
+		if name == current || worktrees[name] {
 			continue
 		}
 		out = append(out, name)
 	}
 	return out
+}
+
+// warnSkippedWorktrees tells the user why otherwise-prunable branches were
+// left alone. Only branches that would have been candidates are reported, so
+// the warning does not fire for the current branch or protected branches.
+func warnSkippedWorktrees(run runner.Executor, candidates []string, cfg *config.Config, current string, worktrees map[string]bool) {
+	var skipped []string
+	for _, name := range filterBranches(candidates, cfg) {
+		if name != current && worktrees[name] {
+			skipped = append(skipped, name)
+		}
+	}
+	if len(skipped) == 0 {
+		return
+	}
+	run.Warnf(
+		fmt.Sprintf("Skipping merged branches checked out in other worktrees: %s.", strings.Join(skipped, ", ")),
+		"Remove the worktree or delete the branch manually with git branch -d.",
+	)
 }

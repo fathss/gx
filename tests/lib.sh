@@ -171,7 +171,7 @@ assert_exit_code() {
 
 assert_output_contains() {
     local label="$1" needle="$2"
-    if echo "$GX_OUTPUT" | grep -Fq "$needle"; then
+    if echo "$GX_OUTPUT" | grep -Fq -- "$needle"; then
         pass "$label"
     else
         fail "$label — expected output to contain: $needle"
@@ -181,7 +181,7 @@ assert_output_contains() {
 
 assert_output_not_contains() {
     local label="$1" needle="$2"
-    if ! echo "$GX_OUTPUT" | grep -Fq "$needle"; then
+    if ! echo "$GX_OUTPUT" | grep -Fq -- "$needle"; then
         pass "$label"
     else
         fail "$label — expected output NOT to contain: $needle"

@@ -22,31 +22,57 @@ const (
 
 // classify maps raw signals to a verdict. Order mirrors the historical
 // switch: rebase takes precedence on the impossible rebase&&merge input.
-func classify(rebase, merge, gxStash bool) qVerdict {
+// gxOwned means gx started the paused operation (ownership marker or, for
+// older paused operations, a branch-scoped gx stash).
+func classify(rebase, merge, gxOwned bool) qVerdict {
 	switch {
-	case rebase && gxStash:
+	case rebase && gxOwned:
 		return q4GXRebase
-	case merge && gxStash:
+	case merge && gxOwned:
 		return q6GXMerge
 	case rebase:
 		return q3ManualRebase
 	case merge:
 		return q5ManualMerge
-	case gxStash:
+	case gxOwned:
 		return q2OrphanStash
 	default:
 		return q1Idle
 	}
 }
 
-// inspect reads the three git signals and classifies them. Trivial glue —
-// callers hoist a single call to function entry.
+// inspectForSync classifies the repository and returns the branch that owns
+// any gx state plus whether the ownership marker exists. The marker is the
+// authoritative signal: a clean working tree creates no stash, so a paused
+// gx rebase/merge would otherwise be indistinguishable from a manual one.
+func inspectForSync(run runner.Executor, current string) (qVerdict, string, bool) {
+	rebase := git.IsRebaseInProgress(run)
+	merge := git.IsMergeInProgress(run)
+
+	markerBranch, hasMarker := git.ReadGXSyncState(run)
+	branch := current
+	if branch == "" && rebase {
+		// HEAD is detached while rebasing; recover the branch from git's
+		// rebase state so stash lookups stay branch-scoped.
+		branch = git.RebaseBranch(run)
+	}
+	if hasMarker {
+		branch = markerBranch
+	}
+
+	// The marker covers the clean-tree case. The stash check remains for
+	// compatibility with operations paused by an older gx that wrote no
+	// marker; it is always branch-scoped.
+	owned := hasMarker || (branch != "" && git.HasGXStash(run, branch))
+	return classify(rebase, merge, owned), branch, hasMarker
+}
+
+// inspect classifies the repository for guards that only need to know whether
+// any rebase/merge is paused (save, ship). Q-table mapping lives in classify().
 func inspect(run runner.Executor) qVerdict {
-	return classify(
-		git.IsRebaseInProgress(run),
-		git.IsMergeInProgress(run),
-		git.HasGXStash(run),
-	)
+	current, _ := git.CurrentBranch(run)
+	verdict, _, _ := inspectForSync(run, current)
+	return verdict
 }
 
 // requireNoInProgress is the shared guard copy for workflows that block on

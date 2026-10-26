@@ -19,8 +19,22 @@ func IsNonFastForward(err error) bool {
 	return strings.Contains(cmdErr.Stderr, "non-fast-forward")
 }
 
+// IsRemoteRefMissing reports whether a failed push --delete means the remote
+// branch was already gone. With fetch --prune this is a race guard: another
+// collaborator may delete the branch between our fetch and our delete.
+func IsRemoteRefMissing(err error) bool {
+	var cmdErr *runner.CommandError
+	if !errors.As(err, &cmdErr) {
+		return false
+	}
+	return strings.Contains(cmdErr.Stderr, "remote ref does not exist")
+}
+
+// Fetch fetches the remote and prunes remote-tracking refs whose branch no
+// longer exists. Pruning keeps clean's merged-branch decision honest instead
+// of leaving stale refs that later fail `push --delete`.
 func Fetch(run runner.Executor, remote string) error {
-	return run.Run("fetch", remote)
+	return run.Run("fetch", "--prune", remote)
 }
 
 func FastForward(run runner.Executor, remote, branch string) error {

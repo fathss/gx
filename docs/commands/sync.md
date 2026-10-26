@@ -16,11 +16,11 @@ gx sync --abort
 
 `gx sync` automates the ritual of synchronizing feature branches:
 
-1. Stashes uncommitted working tree changes with label `gx-sync/<branch>/<timestamp>`.
-2. Fetches latest commits from `<remote>`.
+1. Stashes uncommitted working tree changes with label `gx-sync/<branch>/<timestamp>` (only when the tree is dirty).
+2. Fetches latest commits from `<remote>`, pruning remote-tracking refs whose remote branch is gone.
 3. Fast-forwards the local `<baseBranch>` to match `<remote>/<baseBranch>`.
-4. Integrates updates into the current branch using either `rebase` (default) or `merge`.
-5. Restores stashed changes cleanly.
+4. Records a `.git/gx-sync-state` ownership marker, then integrates updates into the current branch using either `rebase` (default) or `merge`.
+5. Restores stashed changes cleanly (the marker is cleared), or keeps both marker and stash on a conflict pause.
 
 For state classification and recovery invariants, see the [Sync State Machine](../concepts/sync-machine.md).
 
@@ -99,13 +99,14 @@ gx sync --abort
 
 ## Edge Cases & Recovery
 
-| Scenario                       | Behavior & Recovery                                                                                                                 |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Detached HEAD                  | Refused: `Cannot sync from a detached HEAD. Check out a branch first.`                                                              |
-| Conflicts encountered          | Sync pauses leaving rebase or merge in progress. Stash is preserved. Resolve conflicts, `git add`, and run `gx sync --continue`.    |
-| Unresolved conflicts on resume | Refuses with: `There are still unresolved conflicts... Stage the files, then run gx sync --continue again.`                         |
-| Manual rebase/merge detected   | If a rebase/merge is active without a `gx-sync/` stash, gx refuses to interfere. Use `git rebase` or `git merge` commands directly. |
-| Orphaned gx stash              | If a previous sync was interrupted, gx automatically restores the orphaned stash before proceeding.                                 |
-| Remote offline / fetch fails   | Error reported with hint to check network or `git remote -v`. Working tree is untouched.                                            |
-| Base branch missing locally    | Fails with clear hint: `Check that the configured defaultBranch exists locally.`                                                    |
-| Incompatible flags             | Passing conflicting flags (e.g. `--abort` and `--continue`, or `--rebase` and `--merge`) exits with an immediate usage error.       |
+| Scenario                       | Behavior & Recovery                                                                                                                                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Detached HEAD                  | Refused: `Detached HEAD is not supported.` Check out a branch first.                                                                                                                                                        |
+| Conflicts encountered          | Sync pauses leaving rebase or merge in progress. The ownership marker is preserved, and the stash is preserved when one was created. Resolve conflicts, `git add`, and run `gx sync --continue`. Works for clean trees too. |
+| Unresolved conflicts on resume | Refuses with: `There are still unresolved conflicts... Stage the files, then run gx sync --continue again.`                                                                                                                 |
+| Manual rebase/merge detected   | If a rebase/merge is active without a gx ownership marker or branch-scoped `gx-sync/` stash, gx refuses to interfere. Use `git rebase` or `git merge` commands directly.                                                    |
+| Orphaned gx stash              | If a previous sync was interrupted, gx restores the orphaned stash for the current branch before proceeding.                                                                                                                |
+| Concurrent gx sync             | A per-worktree lock blocks the second run: `Another gx sync is already running...` No repository mutation occurs.                                                                                                           |
+| Remote offline / fetch fails   | Error reported with hint to check network or `git remote -v`. Working tree is untouched.                                                                                                                                    |
+| Base branch missing locally    | Fails with a hint to create the branch, e.g. `git checkout -b develop origin/develop`.                                                                                                                                      |
+| Incompatible flags             | Passing conflicting flags (e.g. `--abort` and `--continue`, or `--rebase` and `--merge`) exits with an immediate usage error.                                                                                               |

@@ -1,11 +1,24 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/fathss/gx/internal/runner"
 )
+
+// IsIndexLocked reports whether err is a stash failure caused by another
+// process holding git's index lock. The generic "commit or discard" hint is
+// wrong for a transient lock contention.
+func IsIndexLocked(err error) bool {
+	var cmdErr *runner.CommandError
+	if !errors.As(err, &cmdErr) {
+		return false
+	}
+	return strings.Contains(cmdErr.Stderr, "index.lock") ||
+		strings.Contains(cmdErr.Stderr, "Unable to create")
+}
 
 // StashList returns all stash entries as lines from git stash list.
 // Returns nil if there are no stashes or on error.
@@ -26,25 +39,57 @@ func StashPush(run runner.Executor, message string) error {
 	return run.Run("stash", "push", "-m", message)
 }
 
-// StashPop restores the stash entry matching SyncStashPrefix (or scoped to branch).
-// Uses the stash reference (stash@{N}) so it pops the correct entry even when
-// the user has pushed or popped other stashes in between. Returns nil if no
-// matching stash is found — the entry was already dealt with.
+// StashPop restores the stash entry scoped to branch (or any gx-sync/ entry
+// when branch is empty). Uses the stash reference (stash@{N}) so it pops the
+// correct entry even when the user has pushed or popped other stashes in
+// between. Returns nil if no matching stash is found — the entry was already
+// dealt with.
 func StashPop(run runner.Executor, branch ...string) error {
-	prefix := SyncStashPrefix
-	if len(branch) > 0 && branch[0] != "" {
-		prefix = SyncStashPrefix + branch[0] + "/"
-	}
-	ref, err := findStashByPrefix(run, prefix)
+	ref, err := findStashByPrefix(run, optionalBranch(branch))
 	if err != nil || ref == "" {
 		return nil
 	}
 	return run.Run("stash", "pop", ref)
 }
 
+func optionalBranch(branch []string) string {
+	if len(branch) > 0 {
+		return branch[0]
+	}
+	return ""
+}
+
+// stashMatches reports whether a stash subject was created for branch.
+// Labels look like gx-sync/<branch>/<unix-timestamp>. Matching the exact
+// branch (not just its prefix) keeps feature/a from matching feature/a/b.
+// An empty branch matches every gx-sync/ entry.
+func stashMatches(subject, branch string) bool {
+	if !strings.HasPrefix(subject, SyncStashPrefix) {
+		return false
+	}
+	if branch == "" {
+		return true
+	}
+	prefix := SyncStashPrefix + branch + "/"
+	if !strings.HasPrefix(subject, prefix) {
+		return false
+	}
+	stamp := strings.TrimPrefix(subject, prefix)
+	if stamp == "" {
+		return false
+	}
+	for _, r := range stamp {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // findStashByPrefix returns the stash reference (e.g. "stash@{2}") of the most
-// recent stash entry whose message starts with prefix. Returns "" if none found.
-func findStashByPrefix(run runner.Executor, prefix string) (string, error) {
+// recent stash entry matching branch (any gx-sync/ entry when branch is empty).
+// Returns "" if none found.
+func findStashByPrefix(run runner.Executor, branch string) (string, error) {
 	out, err := run.Output("stash", "list")
 	if err != nil || out == "" {
 		return "", nil
@@ -52,22 +97,18 @@ func findStashByPrefix(run runner.Executor, prefix string) (string, error) {
 	for _, line := range strings.Split(out, "\n") {
 		// Format: "stash@{N}: ...: <message>"
 		parts := strings.SplitN(line, ": ", 3)
-		if len(parts) == 3 && strings.HasPrefix(parts[2], prefix) {
+		if len(parts) == 3 && stashMatches(parts[2], branch) {
 			return strings.TrimSpace(parts[0]), nil
 		}
 	}
 	return "", nil
 }
 
-// DropGXStash drops all stash entries matching SyncStashPrefix (or scoped to branch).
-// Used for cleanup of orphaned gx entries.
+// DropGXStash drops all stash entries matching branch (or all gx-sync/
+// entries when branch is empty). Used for cleanup of orphaned gx entries.
 func DropGXStash(run runner.Executor, branch ...string) error {
-	prefix := SyncStashPrefix
-	if len(branch) > 0 && branch[0] != "" {
-		prefix = SyncStashPrefix + branch[0] + "/"
-	}
 	for {
-		ref, err := findStashByPrefix(run, prefix)
+		ref, err := findStashByPrefix(run, optionalBranch(branch))
 		if err != nil || ref == "" {
 			return nil
 		}
@@ -84,14 +125,9 @@ func IsClean(run runner.Executor) bool {
 	return err == nil && out == ""
 }
 
-// HasGXStash returns true if any stash entry was created by gx sync
-// (label starts with SyncStashPrefix, optionally scoped to branch).
-// Used to distinguish gx-orchestrated rebases from manual ones.
+// HasGXStash returns true if a gx-sync stash exists for branch (or any
+// gx-sync stash when branch is empty).
 func HasGXStash(run runner.Executor, branch ...string) bool {
-	prefix := SyncStashPrefix
-	if len(branch) > 0 && branch[0] != "" {
-		prefix = SyncStashPrefix + branch[0] + "/"
-	}
-	ref, err := findStashByPrefix(run, prefix)
+	ref, err := findStashByPrefix(run, optionalBranch(branch))
 	return err == nil && ref != ""
 }

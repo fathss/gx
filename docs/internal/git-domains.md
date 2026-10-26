@@ -35,7 +35,9 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
 - **`LocalBranchExists(run runner.Executor, branch string) bool`**  
   Runs `git rev-parse --verify refs/heads/<branch>`.
 - **`MergedBranches(run runner.Executor, base string) ([]string, error)`**  
-  Runs `git branch --merged <base>`. Strips the `* ` marker from current branch and returns local branch names.
+  Runs `git branch --merged <base>`. Strips the `* ` (current) and `+ ` (worktree) markers and returns local branch names. Worktree policy is applied by the workflow, not hidden in the parser.
+- **`WorktreeBranches(run runner.Executor) (map[string]bool, error)`**  
+  Runs `git worktree list --porcelain` and returns the set of branches checked out in any worktree (including the main one). `gx clean` excludes these because `git branch -d` refuses to delete them.
 - **`MergedRemoteBranches(run runner.Executor, remote, base string) ([]string, error)`**  
   Runs `git branch -r --merged <remote>/<base>`. Returns bare branch names of remote-tracking refs, excluding `origin/HEAD` symbolic refs.
 - **`DeleteLocalBranch(run runner.Executor, branch string) error`**  
@@ -110,7 +112,7 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
 ### `remote.go`
 
 - **`Fetch(run runner.Executor, remote string) error`**  
-  Runs `git fetch <remote>`.
+  Runs `git fetch --prune <remote>`. Pruning removes remote-tracking refs whose remote branch is gone, so merged-branch decisions never use stale refs.
 - **`FastForward(run runner.Executor, remote, branch string) error`**  
   Runs `git merge --ff-only <remote>/<branch>`.
 - **`RemoteExists(run runner.Executor, name string) bool`**  
@@ -129,6 +131,8 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
   Runs `git remote get-url <remote>`.
 - **`DeleteRemoteBranch(run runner.Executor, remote, branch string) error`**  
   Runs `git push <remote> --delete <branch>`.
+- **`IsRemoteRefMissing(err error) bool`**  
+  Inspects `runner.CommandError.Stderr` for `remote ref does not exist`. Used by clean's remote deletion loop so losing the race to another collaborator is treated as already pruned.
 - **`IsNonFastForward(err error) bool`**  
   Inspects `runner.CommandError.Stderr` for `non-fast-forward` marker.
 
@@ -186,17 +190,36 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
 - **`StashPush(run runner.Executor, message string) error`**  
   Runs `git stash push -m <message>`.
 - **`StashPop(run runner.Executor, branch ...string) error`**  
-  Finds stash matching `SyncStashPrefix` (scoped to `SyncStashPrefix + branch + "/"` if branch passed) by parsing stash list, then pops it via `git stash pop <ref>`.
+  Finds the stash matching the exact `gx-sync/<branch>/<timestamp>` label (any `gx-sync/` entry when branch is omitted) and pops it via `git stash pop <ref>`. Exact matching keeps `feature/a` from matching `feature/a/b`.
 - **`DropGXStash(run runner.Executor, branch ...string) error`**  
-  Iteratively drops all matching `gx-sync/` stash entries.
+  Iteratively drops matching `gx-sync/` stash entries, scoped to the exact branch when provided.
 - **`IsClean(run runner.Executor) bool`**  
   Runs `git status --porcelain --untracked-files=no` to check if tracked files are clean.
 - **`HasGXStash(run runner.Executor, branch ...string) bool`**  
-  Checks if any stash matching `SyncStashPrefix` (optionally scoped to branch) exists.
+  Checks if any stash matches the exact `gx-sync/<branch>/<timestamp>` label (or any `gx-sync/` entry when branch is omitted).
+- **`IsIndexLocked(err error) bool`**  
+  Inspects `runner.CommandError.Stderr` for git's index lock so sync can report lock contention instead of a misleading "commit or discard your changes" hint.
 
 ---
 
-## 8. Status Aggregation
+## 8. Sync Ownership State
+
+### `syncstate.go`
+
+- **`GitDir(run runner.Executor) (string, error)`**  
+  Runs `git rev-parse --absolute-git-dir`. Returns the worktree-specific git directory.
+- **`WriteGXSyncState(run runner.Executor, branch string) error`**  
+  Writes `.git/gx-sync-state` containing the owning branch immediately before gx starts a rebase or merge.
+- **`ReadGXSyncState(run runner.Executor) (string, bool)`**  
+  Reads the ownership marker. Returns `("", false)` when absent or empty.
+- **`ClearGXSyncState(run runner.Executor) error`**  
+  Removes the marker. A missing marker is not an error.
+- **`RebaseBranch(run runner.Executor) string`**  
+  Reads `.git/rebase-merge/head-name` (or `rebase-apply/head-name`) and strips `refs/heads/`. Supplies the owning branch while HEAD is detached during a rebase.
+
+---
+
+## 9. Status Aggregation
 
 ### `status.go`
 

@@ -72,16 +72,39 @@ func MergedBranches(run runner.Executor, base string) ([]string, error) {
 		if trimmed == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "* ") {
-			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "* "))
+		// "* " marks the current branch; "+ " marks a branch checked out in
+		// another worktree. Strip both markers below the seam so workflows
+		// can apply explicit worktree policy instead of relying on the
+		// space filter.
+		if strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ") {
+			trimmed = strings.TrimSpace(trimmed[2:])
 		}
 		if trimmed == "" {
 			continue
 		}
-		if strings.Contains(trimmed, " ") {
+		// Detached HEAD is listed as "(HEAD detached at <hash>)".
+		if strings.HasPrefix(trimmed, "(") || strings.Contains(trimmed, " ") {
 			continue
 		}
 		branches = append(branches, trimmed)
+	}
+	return branches, nil
+}
+
+// WorktreeBranches returns the set of branches currently checked out in any
+// worktree (including the main one). Git refuses to delete these with
+// `git branch -d`, so clean must exclude them explicitly.
+func WorktreeBranches(run runner.Executor) (map[string]bool, error) {
+	out, err := run.Output("worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	branches := make(map[string]bool)
+	for _, line := range strings.Split(out, "\n") {
+		const prefix = "branch refs/heads/"
+		if strings.HasPrefix(line, prefix) {
+			branches[strings.TrimPrefix(line, prefix)] = true
+		}
 	}
 	return branches, nil
 }

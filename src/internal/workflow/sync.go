@@ -21,12 +21,39 @@ type SyncOptions struct {
 }
 
 func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
-	sessionGit := newProdSyncGit(run)
-	verdict := inspect(run)
+	release, err := acquireSyncLock(run)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	// 1. Determine current branch and classify repository state. The gx
+	// ownership marker is authoritative when present; the branch it names is
+	// used to scope every stash lookup (HEAD is detached during a rebase).
+	current, err := git.CurrentBranch(run)
+	if err != nil {
+		return &cli.Error{
+			Message: "Failed to determine current branch.",
+		}
+	}
+	verdict, stateBranch, hasMarker := inspectForSync(run, current)
+	// A marker with no paused operation is stale. If it belongs to another
+	// branch (the user aborted a gx rebase manually and switched branches),
+	// leave that branch's stash untouched; restoring it here would leak one
+	// branch's work into another. Clear only the marker and sync as Q1.
+	if verdict == q2OrphanStash && hasMarker && stateBranch != current {
+		if err := git.ClearGXSyncState(run); err != nil {
+			run.Warnf("Failed to clear a stale in-progress sync marker.", fmt.Sprintf("Error: %v", err))
+		}
+		verdict = q1Idle
+		stateBranch = current
+		hasMarker = false
+	}
+	sessionGit := newProdSyncGit(run, stateBranch)
 
 	// --abort: abort in-progress rebase or merge, settle the gx stash if present.
-	// Only works for gx-orchestrated operations (has gx stash). Manual
-	// rebases/merges block with a message telling the user to use git directly.
+	// Only works for gx-orchestrated operations (marker or branch-scoped stash).
+	// Manual rebases/merges block with a message telling the user to use git.
 	if opts.Abort {
 		switch verdict {
 		case q3ManualRebase:
@@ -54,7 +81,13 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			return abortWithStash(run, sessionGit, git.MergeAbort)
 
 		default:
-			// Q1 or Q2: nothing to abort
+			// Q1 or Q2: nothing to abort. A marker with no paused operation is
+			// stale (e.g. the user aborted manually); clear it.
+			if hasMarker {
+				if err := sessionGit.ClearState(); err != nil {
+					sessionGit.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
+				}
+			}
 			return &cli.Error{
 				Message: "Nothing to abort.",
 				Hint:    "Run gx sync to start a new sync.",
@@ -62,20 +95,12 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 		}
 	}
 
-	// 1. Determine current branch
-	current, err := git.CurrentBranch(run)
-	if err != nil {
-		return &cli.Error{
-			Message: "Failed to determine current branch.",
-		}
-	}
-
 	// 3. State machine for rebase/merge + stash interactions — classified
-	// once by inspect() (the Q-table lives in repostate.go); this switch is
-	// the interpretation for gx sync.
+	// once by inspectForSync() (the Q-table lives in repostate.go); this
+	// switch is the interpretation for gx sync.
 	//
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
-	//    |   | RebaseInProgress | MergeInProgress  | HasGXStash    | Behavior                                |
+	//    |   | RebaseInProgress | MergeInProgress  | GXOwned       | Behavior                                |
 	//    +---+------------------+------------------+---------------+-----------------------------------------+
 	//    | 1 | false            | false            | false         | normal flow                             |
 	//    | 2 | false            | false            | true          | restore orphan, proceed                 |
@@ -135,9 +160,27 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 		}
 
 	case q1Idle, q2OrphanStash:
+		// Detached HEAD with no paused operation: refuse before touching any
+		// stash. (A paused gx rebase is detached too, but classifies Q4.)
+		if current == "" {
+			if hasMarker {
+				if err := sessionGit.ClearState(); err != nil {
+					sessionGit.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
+				}
+			}
+			return &cli.Error{
+				Message: "Detached HEAD is not supported.",
+				Hint:    "Checkout a branch first.",
+			}
+		}
 		if opts.Continue || opts.Skip {
-			// --continue or --skip but nothing paused
-			// Issue 09c: check if rebase already completed
+			// --continue or --skip but nothing paused. Clear a stale marker so
+			// the next run starts clean.
+			if hasMarker {
+				if err := sessionGit.ClearState(); err != nil {
+					sessionGit.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
+				}
+			}
 			return &cli.Error{
 				Message: "Nothing to continue. Rebase appears to have completed already.",
 				Hint:    "Run git status to verify the state, then gx sync to start a fresh sync.",
@@ -148,14 +191,6 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			if err := resume(sessionGit).settle(settleRestore); err != nil {
 				return err
 			}
-		}
-	}
-
-	// Detached HEAD is not supported (only reaches here in Q1 or Q2)
-	if current == "" {
-		return &cli.Error{
-			Message: "Detached HEAD is not supported.",
-			Hint:    "Checkout a branch first.",
 		}
 	}
 
@@ -251,7 +286,17 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			}
 		}
 
-		// 8. Rebase or merge
+		// 8. Rebase or merge. Record ownership first: a clean tree creates no
+		// stash, so the marker is what makes a conflict from a clean tree
+		// resumable via --continue/--abort. The marker is cleared on every
+		// settle except pause.
+		if err := sessionGit.MarkState(); err != nil {
+			return settleRestore, &cli.Error{
+				Message: "Failed to record the in-progress sync state.",
+				Hint:    "Check that the repository is writable, then run gx sync again.",
+			}
+		}
+
 		// Use flag override if provided, otherwise config
 		strategy := cfg.SyncStrategy
 		switch {

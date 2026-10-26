@@ -8,14 +8,14 @@
 
 Before executing or resuming a sync, `gx` classifies repository state into one of six states (Q1–Q6) based on three signals:
 
-| State  | Rebase Active? | Merge Active? | GX Stash Exists? | Description & Behavior                                                                        |
-| ------ | -------------- | ------------- | ---------------- | --------------------------------------------------------------------------------------------- |
-| **Q1** | No             | No            | No               | **Normal sync**: Proceed with full sync workflow.                                             |
-| **Q2** | No             | No            | Yes              | **Orphaned stash**: Restore lingering `gx-sync/` stash, then proceed normally.                |
-| **Q3** | Yes            | No            | No               | **Manual rebase**: Block. Rebase was started outside gx; user must use `git rebase` commands. |
-| **Q4** | Yes            | No            | Yes              | **Paused gx rebase**: Block on plain sync. Accept `--continue`, `--skip`, or `--abort`.       |
-| **Q5** | No             | Yes           | No               | **Manual merge**: Block. Merge was started outside gx; user must use `git merge` commands.    |
-| **Q6** | No             | Yes           | Yes              | **Paused gx merge**: Block on plain sync. Accept `--continue` or `--abort`.                   |
+| State  | Rebase Active? | Merge Active? | GX Owned? | Description & Behavior                                                                        |
+| ------ | -------------- | ------------- | --------- | --------------------------------------------------------------------------------------------- |
+| **Q1** | No             | No            | No        | **Normal sync**: Proceed with full sync workflow.                                             |
+| **Q2** | No             | No            | Yes       | **Orphaned state**: Restore a lingering gx stash / clear a stale marker, then proceed.        |
+| **Q3** | Yes            | No            | No        | **Manual rebase**: Block. Rebase was started outside gx; user must use `git rebase` commands. |
+| **Q4** | Yes            | No            | Yes       | **Paused gx rebase**: Block on plain sync. Accept `--continue`, `--skip`, or `--abort`.       |
+| **Q5** | No             | Yes           | No        | **Manual merge**: Block. Merge was started outside gx; user must use `git merge` commands.    |
+| **Q6** | No             | Yes           | Yes       | **Paused gx merge**: Block on plain sync. Accept `--continue` or `--abort`.                   |
 
 ### Detection Signals
 
@@ -24,8 +24,11 @@ Before executing or resuming a sync, `gx` classifies repository state into one o
    - Avoids false-negatives of `git rebase --show-current-patch` during interactive pauses.
 2. **Merge in Progress**:
    - Detected via `git rev-parse -q --verify MERGE_HEAD`.
-3. **GX Stash Existence**:
-   - `git stash list` is inspected for labels starting with `gx-sync/` (or scoped to `gx-sync/<branch>/`).
+3. **GX Ownership (marker, then stash fallback)**:
+   - `.git/gx-sync-state` is written immediately before gx starts a rebase or merge and contains the owning branch. It is preserved on a conflict pause and cleared on every other settle. This is the authoritative signal, and it is what makes a conflict from a **clean** tree (no stash created) resumable.
+   - For operations paused by an older gx (no marker), a branch-scoped `gx-sync/<branch>/<timestamp>` stash is accepted as the ownership signal.
+
+While HEAD is detached during a rebase, the owning branch comes from the marker (or `.git/rebase-merge/head-name` for legacy state) — never from `git branch --show-current`, which is empty.
 
 ---
 
@@ -36,9 +39,12 @@ The git stash stack is shared across all tools and user commands. Using fixed in
 gx avoids index-shifting bugs by:
 
 1. Labeling each stash with a distinct prefix: `gx-sync/<branch>/<timestamp>`.
-2. Locating stashes by prefix parsing rather than position index.
-3. Scoping lookups to the current branch to avoid cross-branch stash conflicts.
+2. Locating stashes by parsing labels rather than position index.
+3. Matching the **exact** branch segment (the suffix must be the numeric timestamp), so `feature/a` never matches `feature/a/b`'s stash.
 4. Popping or dropping only matching entries via `stash@{N}` resolved from the search.
+5. Scoping cleanup to the owning branch, so another branch's orphaned stash is never applied or dropped.
+
+If the tree was clean, no stash exists; the ownership marker alone carries the branch across the pause. If a stale marker names a different branch (for example after aborting a gx rebase with `git rebase --abort` and switching branches), gx clears only the marker and leaves that branch's stash untouched.
 
 ---
 
@@ -66,9 +72,12 @@ gx avoids index-shifting bugs by:
 When a conflict occurs during rebase or merge:
 
 - Rebase or merge is **left in progress**.
-- The `gx-sync/` stash is **preserved**.
+- The ownership marker is **preserved**.
+- The `gx-sync/` stash is **preserved** when one was created (dirty tree).
 - gx outputs the conflicted commit information and files.
 - State transitions to **Q4** (rebase) or **Q6** (merge).
+
+This holds for a clean tree too: no stash is created, but the marker still makes the paused operation gx-owned and resumable.
 
 ### 3. Resuming Paused Operations (Q4 / Q6)
 
@@ -80,4 +89,4 @@ After resolving conflicts and staging files (`git add <files>`):
 
 ### 4. Non-Interference Policy (Q3 / Q5)
 
-If a rebase or merge is in progress but no `gx-sync/` stash exists, gx determines the operation was started manually with `git rebase` or `git merge`. gx refuses to manipulate the operation to avoid clobbering user intent.
+If a rebase or merge is in progress but there is no ownership marker and no branch-scoped `gx-sync/` stash, gx determines the operation was started manually with `git rebase` or `git merge`. gx refuses to manipulate the operation to avoid clobbering user intent.

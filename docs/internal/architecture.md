@@ -151,24 +151,25 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 
 ## Workflow files
 
-| File                               | Contents                                                                                                                                        |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                   |
-| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                              |
-| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`         |
-| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the recover invariant (`syncGit` seam + `prodSyncGit` adapter)   |
-| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspect()`, `requireNoInProgress()` guard shared by save/ship                       |
-| `internal/workflow/prompt.go`      | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr |
-| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit                                                                                  |
-| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                                 |
-| `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot (upstream = configured remote via `CheckDivergence`)                                                 |
-| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                              |
+| File                               | Contents                                                                                                                                                                                |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                                                           |
+| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                                                                      |
+| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`                                                 |
+| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the ownership marker (`syncGit` seam + `prodSyncGit` adapter)                                            |
+| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspectForSync()`, `requireNoInProgress()` guard shared by save/ship; marker is authoritative, stash is the legacy fallback |
+| `internal/workflow/synclock.go`    | Per-worktree sync lock — `acquireSyncLock()`, stale-PID recovery; `synclock_unix.go` probes liveness, `synclock_windows.go` ages locks out                                              |
+| `internal/workflow/prompt.go`      | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr                                         |
+| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit                                                                                                                          |
+| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                                                                         |
+| `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot (upstream = configured remote via `CheckDivergence`)                                                                                         |
+| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                                                                      |
 
 ---
 
 ## Git domain files
 
-The `internal/git/` package houses wrappers around git operations. Detailed signatures and behavior are documented in the [Git Domains Reference](git-domains.md).
+The `internal/git/` package houses wrappers around git operations. `syncstate.go` owns the `.git/gx-sync-state` ownership marker and the detached-rebase branch lookup. Detailed signatures and behavior are documented in the [Git Domains Reference](git-domains.md).
 
 ---
 

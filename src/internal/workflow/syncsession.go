@@ -18,6 +18,8 @@ type syncGit interface {
 	DropGXStash() error
 	IsClean() bool
 	HasGXStash() bool
+	MarkState() error
+	ClearState() error
 	Warnf(msg, hint string)
 }
 
@@ -46,6 +48,12 @@ func (adapter *prodSyncGit) DropGXStash() error { return git.DropGXStash(adapter
 func (adapter *prodSyncGit) IsClean() bool { return git.IsClean(adapter.run) }
 
 func (adapter *prodSyncGit) HasGXStash() bool { return git.HasGXStash(adapter.run, adapter.branch) }
+
+func (adapter *prodSyncGit) MarkState() error {
+	return git.WriteGXSyncState(adapter.run, adapter.branch)
+}
+
+func (adapter *prodSyncGit) ClearState() error { return git.ClearGXSyncState(adapter.run) }
 
 func (adapter *prodSyncGit) Warnf(msg, hint string) { adapter.run.Warnf(msg, hint) }
 
@@ -81,9 +89,13 @@ func begin(sessionGit syncGit, branch string) (*syncSession, error) {
 	label := fmt.Sprintf("%s%s/%d", git.SyncStashPrefix, branch, time.Now().Unix())
 	fmt.Println("Stashing local changes...")
 	if err := sessionGit.StashPush(label); err != nil {
+		hint := "Commit or discard your changes manually."
+		if git.IsIndexLocked(err) {
+			hint = "Another git process is using this repository. Wait for it to finish, then retry."
+		}
 		return nil, &cli.Error{
 			Message: "Failed to stash local changes.",
-			Hint:    "Commit or discard your changes manually.",
+			Hint:    hint,
 		}
 	}
 	session.acquired = true
@@ -134,6 +146,7 @@ func (session *syncSession) settle(outcome settle) error {
 		hadStash := session.acquired
 		if session.acquired {
 			if err := session.pop(); err != nil {
+				session.clearState()
 				return err
 			}
 			session.acquired = false
@@ -143,17 +156,28 @@ func (session *syncSession) settle(outcome settle) error {
 				session.git.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
 			}
 		}
+		session.clearState()
 		return nil
 
 	default: // settleRestore
-		if !session.acquired {
-			return nil
+		if session.acquired {
+			if err := session.pop(); err != nil {
+				session.clearState()
+				return err
+			}
+			session.acquired = false
 		}
-		if err := session.pop(); err != nil {
-			return err
-		}
-		session.acquired = false
+		session.clearState()
 		return nil
+	}
+}
+
+// clearState removes the gx ownership marker. Cleanup failures are warnings:
+// a stale marker is harmless (the next plain sync adopts it as Q2 and clears
+// it), and the session's original outcome still matters more.
+func (session *syncSession) clearState() {
+	if err := session.git.ClearState(); err != nil {
+		session.git.Warnf("Failed to clear the in-progress sync state.", fmt.Sprintf("Error: %v", err))
 	}
 }
 
