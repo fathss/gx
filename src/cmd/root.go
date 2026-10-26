@@ -13,14 +13,16 @@ import (
 )
 
 var (
+	Version          = "0.1.0"
 	verbose          bool
 	run              *runner.Runner
 	annotateBuiltins sync.Once
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "gx",
-	Short: "gx — opinionated git workflows in single commands",
+	Use:     "gx",
+	Version: Version,
+	Short:   "gx — opinionated git workflows in single commands",
 	Long: `gx wraps common git workflows into single commands that follow best practices.
 Instead of running 4-7 git commands manually, gx does the right sequence for you.
 

@@ -1,6 +1,10 @@
 # build artifacts
 /src/gx
 /src/gx.exe
+gx
+gx.exe
+dist/
+notes.md
 
 # gx config
 .gx/
