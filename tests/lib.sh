@@ -18,7 +18,7 @@ FAIL=0
 
 # --- Build ---
 build_gx() {
-    cd "$REPO_ROOT" && go build -o gx . >/dev/null
+    cd "$REPO_ROOT/src" && go build -o "$GX_BIN" . >/dev/null
 }
 
 # --- Temp dir ---

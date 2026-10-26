@@ -18,7 +18,7 @@ echo ""
 
 # Pre-build the binary so every suite doesn't recompile
 echo "Building gx..."
-cd "$REPO_ROOT" && go build -o gx . >/dev/null
+cd "$REPO_ROOT/src" && go build -o "$REPO_ROOT/gx" . >/dev/null
 echo "  ✓ gx built at $REPO_ROOT/gx"
 trap 'rm -f "$REPO_ROOT/gx"' EXIT
 echo ""
