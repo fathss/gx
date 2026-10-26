@@ -49,7 +49,7 @@ gx status    # see where you stand
 | `gx ship`   | Push the current branch and print the PR URL                          |
 | `gx status` | Branch, staged/unstaged files, stash count, ahead/behind, recent log  |
 | `gx config` | Read/write `.gx/config` values                                        |
-| `gx clean`  | Prune local branches already merged into base                         |
+| `gx clean`  | Prune branches already merged into base                               |
 
 Full behavior and flags for each are documented under `src/docs/commands/`.
 
@@ -87,5 +87,4 @@ Edit values directly or via `gx config <key> <value>`.
 
 ## Contributing / internals
 
-Architecture, layering rules, and per-command specs live in `src/AGENTS.md`
-and `src/docs/`.
+Architecture, layering rules, and per-command specs live in `src/docs/`.

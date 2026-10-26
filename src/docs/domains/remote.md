@@ -114,3 +114,15 @@ git push <remote> --delete <branch>
 
 Deletes a branch on the remote. Affects every collaborator — the branch is
 removed from the shared remote, not just local refs.
+
+---
+
+## IsNonFastForward
+
+```go
+func IsNonFastForward(err error) bool
+```
+
+Inspects a runner `CommandError` and reports whether the remote rejected the
+push because it was not a fast-forward (stderr contains `non-fast-forward`).
+Used by `gx ship` to provide actionable hint on push rejection.

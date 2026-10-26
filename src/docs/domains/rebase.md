@@ -5,7 +5,7 @@
 ## Rebase
 
 ```
-git rebase <branch>
+git rebase -- <branch>
 ```
 
 Replay the current branch's commits on top of `<branch>`.

@@ -19,7 +19,7 @@ hint: Run gx init to start using gx
   ✗ Not inside a Git repository.
   hint: Run gx inside a cloned repository.
   ```
-- Must not have an existing `.gx/config`. If it exists, `gx init` exits with
+- Must not have an existing `.gx/config` (unless `--force` is used). If it exists, `gx init` exits with
   instructions to use `gx config` to update values.
 
 ## Usage
@@ -76,7 +76,7 @@ gx init --remote upstream --branch develop
 
 ## Notes
 
-- Fails if `.gx/config` already exists — edit it directly or use `gx config`
+- Fails if `.gx/config` already exists (unless `--force` is passed) — edit it directly or use `gx config`
   to update values.
 - Only measurable settings are detected. `syncStrategy` defaults to `rebase`
   and can be changed with `gx config syncStrategy merge`.

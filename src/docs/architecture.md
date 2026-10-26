@@ -71,6 +71,7 @@ Each layer has a specific job and **must not** reach across boundaries.
 ### `internal/config/`
 
 - Loads and saves `.gx/config` from the current directory
+- Key registry in `registry.go` defines key definitions, ordering (`Keys()`), and validation
 - Falls back to defaults if the file is missing
 - Provides `Set`, `Get`, `Exists`, and `Default()` helpers, plus the defaults `DefaultSensitivePatterns` and `DefaultProtectedBranches`
 - Provides list helpers `AppendSensitivePatterns`/`SetSensitivePatterns` and `AppendProtectedBranches`/`SetProtectedBranches` — used by `gx config` (`cmd/config.go`)
@@ -182,8 +183,8 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 | `ref.go`        | `Qualify`, `StripRemote` — the ref vocabulary (idempotent qualification, prefix stripping) shared by the git layer                              |
 | `repository.go` | `IsRepository`                                                                                                                                                                              |
 | `stage.go`      | `AddAll`, `Add`, `AddPatch`                                                                                                                                                                 |
-| `stash.go`      | `StashList`, `StashPush`, `StashPop`, `findStashByPrefix`, `DropGXStash`, `IsClean`, `HasGXStash`                                                                                           |
-| `status.go`     | `Status`, `NonEmptyStatus`, `SubmodulePaths`, `GetParsedStatus`, `parsePorcelain`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus`                                                        |
+| `stash.go`      | `StashList`, `StashPush`, `StashPop`, `DropGXStash`, `IsClean`, `HasGXStash`                                                                                           |
+| `status.go`     | `Status`, `NonEmptyStatus`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus`                                                        |
 
 ---
 

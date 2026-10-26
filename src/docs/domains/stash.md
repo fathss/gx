@@ -56,7 +56,7 @@ Stashes tracked-file changes with a descriptive message label.
 
 ## StashPop
 
-Finds the stash matching `SyncStashPrefix` via `findStashByPrefix` and pops it:
+Finds the stash matching `SyncStashPrefix` (or scoped to `SyncStashPrefix + branch + "/"` if `branch` argument is passed) via `findStashByPrefix` and pops it:
 
 ```
 git stash pop <ref>
@@ -84,7 +84,7 @@ parts; the reference is the first part, the message the last.
 
 ## DropGXStash
 
-Loops `findStashByPrefix` + `stash drop` until no `gx-sync/` stash remains:
+Loops `findStashByPrefix` + `stash drop` until no matching `gx-sync/` stash (optionally scoped to branch) remains:
 
 ```
 git stash drop <ref>
@@ -108,5 +108,5 @@ files are ignored — they don't block checkout or rebase.
 ## HasGXStash
 
 Returns `true` if any stash entry was created by gx sync (label starts with
-`SyncStashPrefix`). Used to distinguish gx-orchestrated rebases/merges from
+`SyncStashPrefix`, optionally scoped to branch). Used to distinguish gx-orchestrated rebases/merges from
 manual ones — see the sync state machine in `docs/architecture.md`.

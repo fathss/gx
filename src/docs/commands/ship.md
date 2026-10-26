@@ -243,10 +243,10 @@ hint: Rebase or merge first (gx sync), or re-run with --force if you intend
 | `cmd/ship.go`                 | Cobra command, `--force`/`--no-pr` flags, config loading                              |
 | `internal/workflow/ship.go`   | Protected-branch check, divergence check, push, PR-url orchestration                  |
 | `internal/git/branch.go`      | `CurrentBranch()` (empty string = detached HEAD)                                      |
-| `internal/git/remote.go`      | `Push()`, `PushSetUpstream()`, `PushForceWithLease()`, `RemoteURL()`, `Fetch()`                          |
+| `internal/git/remote.go`      | `Push()`, `PushSetUpstream()`, `PushForceWithLease()`, `RemoteURL()`, `Fetch()`, `IsNonFastForward()` |
 | `internal/git/divergence.go`  | `CheckDivergence(remote, branch) (Divergence, error)` — `Tracking`/`Ahead`/`Behind`                       |
 | `internal/config/config.go`   | `Load()`, `ProtectedBranches` field (defaults to `main,master,develop`)               |
-| `internal/forge/forge.go`     | Interface: `PRCreateURL(remote, base, branch) string`, `ExistingPRURL(...)`           |
+| `internal/forge/forge.go`     | Interface: `PRCreateURL(base, branch) string`, `ExistingPRURL(...)`                   |
 | `internal/forge/github.go`    | GitHub URL construction + existing-PR lookup                                          |
 | `internal/forge/gitlab.go`    | GitLab URL construction + existing-MR lookup                                          |
 | `internal/forge/bitbucket.go` | Bitbucket URL construction + existing-PR lookup                                       |

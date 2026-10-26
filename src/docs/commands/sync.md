@@ -272,7 +272,7 @@ Restoring stashed changes...
 
 | File                               | Contents                                                                                                            |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `cmd/sync.go`                      | Cobra command, flags (`--continue`, `--abort`, `--rebase`, `--merge`), config loading                               |
+| `cmd/sync.go`                      | Cobra command, flags (`--continue`, `--abort`, `--rebase`, `--merge`, `--skip`), config loading     |
 | `internal/workflow/sync.go`        | State machine (Q1-Q6), normal flow, continue/abort helpers                                                          |
 | `internal/workflow/syncsession.go` | Sync session — begin/resume/settle: stash lifecycle and recover invariant                                           |
 | `internal/git/branch.go`           | `CurrentBranch()`, `Checkout()`                                                                                     |

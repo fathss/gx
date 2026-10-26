@@ -263,9 +263,9 @@ hint: Remove or gitignore the files, or use --allow-sensitive to override.
 | --------------------------- | -------------------------------------------------------- |
 | `cmd/save.go`               | Cobra command, flags, config loading                     |
 | `internal/workflow/save.go` | Categorized scan, sensitive check, stage, commit         |
-| `internal/git/status.go`    | `Status()`, `NonEmptyStatus()`                           |
+| `internal/git/status.go`    | `Status()`, `NonEmptyStatus()`, `SubmodulePaths()`       |
 | `internal/git/stage.go`     | `Add()`, `AddPatch()`                                    |
-| `internal/git/diff.go`      | `DiffStatCached()`                                       |
+| `internal/git/diff.go`      | `DiffStatCached()`, `HasStagedChanges()`, `CheckCachedDiff()` |
 | `internal/git/commit.go`    | `Commit()`, `CommitEditor()`, `CommitAllowEmpty()`, `CommitAllowEmptyEditor()` |
 | `internal/git/patterns.go`  | `MatchSensitivePatterns()`, `FilterExcluded()` |
 | `internal/config/config.go` | `Load()`, `SensitivePatterns` field, `DefaultSensitivePatterns` |

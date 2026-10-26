@@ -3,7 +3,7 @@
 Errors flow through the layers — each layer only wraps errors from the layer below.
 
 ```
-runner  →  raw exec errors (never wrapped)
+runner  →  CommandError{Args, ExitCode, Stderr} for failed git commands (infrastructure errors pass through unwrapped)
 
   ↓
 
@@ -26,11 +26,19 @@ main    →  prints the error (only main.go renders errors)
 
 ## Rules by layer
 
-### runner — never wrap errors
+### runner — wrap failed commands in CommandError
 
 ```go
 // ✅ Good
-return cmd.Run()
+var exitErr *exec.ExitError
+if errors.As(err, &exitErr) {
+    return &CommandError{
+        Args:     append([]string(nil), args...),
+        ExitCode: exitErr.ExitCode(),
+        Stderr:   trimOutput(stderr),
+    }
+}
+return err
 
 // ❌ Bad
 return fmt.Errorf("git failed: %w", err)
