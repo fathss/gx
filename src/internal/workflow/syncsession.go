@@ -23,24 +23,29 @@ type syncGit interface {
 
 // prodSyncGit adapts the git package and runner to syncGit.
 type prodSyncGit struct {
-	run runner.Executor
+	run    runner.Executor
+	branch string
 }
 
-func newProdSyncGit(run runner.Executor) syncGit {
-	return &prodSyncGit{run: run}
+func newProdSyncGit(run runner.Executor, branch ...string) syncGit {
+	b := ""
+	if len(branch) > 0 {
+		b = branch[0]
+	}
+	return &prodSyncGit{run: run, branch: b}
 }
 
 func (adapter *prodSyncGit) StashPush(label string) error {
 	return git.StashPush(adapter.run, label)
 }
 
-func (adapter *prodSyncGit) StashPop() error { return git.StashPop(adapter.run) }
+func (adapter *prodSyncGit) StashPop() error { return git.StashPop(adapter.run, adapter.branch) }
 
-func (adapter *prodSyncGit) DropGXStash() error { return git.DropGXStash(adapter.run) }
+func (adapter *prodSyncGit) DropGXStash() error { return git.DropGXStash(adapter.run, adapter.branch) }
 
 func (adapter *prodSyncGit) IsClean() bool { return git.IsClean(adapter.run) }
 
-func (adapter *prodSyncGit) HasGXStash() bool { return git.HasGXStash(adapter.run) }
+func (adapter *prodSyncGit) HasGXStash() bool { return git.HasGXStash(adapter.run, adapter.branch) }
 
 func (adapter *prodSyncGit) Warnf(msg, hint string) { adapter.run.Warnf(msg, hint) }
 
@@ -63,6 +68,7 @@ const (
 type syncSession struct {
 	git      syncGit
 	acquired bool
+	resumed  bool
 }
 
 // begin acquires a session: a clean tree stashes nothing; a dirty tree is
@@ -88,7 +94,7 @@ func begin(sessionGit syncGit, branch string) (*syncSession, error) {
 // becomes this session's to settle. Used by --continue, --skip, and --abort,
 // which run in a fresh process with no live session state.
 func resume(sessionGit syncGit) *syncSession {
-	return &syncSession{git: sessionGit, acquired: sessionGit.HasGXStash()}
+	return &syncSession{git: sessionGit, acquired: sessionGit.HasGXStash(), resumed: true}
 }
 
 // run executes the act-phase fn and settles the session exactly once:
@@ -125,14 +131,17 @@ func (session *syncSession) settle(outcome settle) error {
 		return nil
 
 	case settleCommit:
+		hadStash := session.acquired
 		if session.acquired {
 			if err := session.pop(); err != nil {
 				return err
 			}
 			session.acquired = false
 		}
-		if err := session.git.DropGXStash(); err != nil {
-			session.git.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
+		if hadStash || session.resumed {
+			if err := session.git.DropGXStash(); err != nil {
+				session.git.Warnf("Failed to clean up gx stash entries.", fmt.Sprintf("Error: %v", err))
+			}
 		}
 		return nil
 

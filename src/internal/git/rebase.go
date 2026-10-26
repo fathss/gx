@@ -9,7 +9,7 @@ import (
 )
 
 func Rebase(run runner.Executor, branch string) error {
-	return run.Run("rebase", branch)
+	return run.Run("rebase", "--", branch)
 }
 
 // RebaseAbort aborts an in-progress rebase and restores the original branch.

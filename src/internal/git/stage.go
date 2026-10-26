@@ -11,7 +11,10 @@ func AddAll(run runner.Executor) error {
 // Add stages the specified files. If no files are given, Add stages everything.
 // Equivalent to `git add <files...>`.
 func Add(run runner.Executor, files ...string) error {
-	args := append([]string{"add"}, files...)
+	if len(files) == 0 {
+		return run.Run("add", "-A")
+	}
+	args := append([]string{"add", "--"}, files...)
 	return run.Run(args...)
 }
 

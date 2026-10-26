@@ -91,6 +91,7 @@ func (r *Runner) Run(args ...string) error {
 	fmt.Println("▸ git", strings.Join(args, " "))
 
 	cmd := exec.Command("git", args...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 
 	// Tee stderr: stream it live for the user, capture it for CommandError.
@@ -109,6 +110,7 @@ func (r *Runner) RunWithEnv(extraEnv []string, args ...string) error {
 
 	cmd := exec.Command("git", args...)
 	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 
 	var stderrBuffer bytes.Buffer
