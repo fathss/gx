@@ -87,7 +87,7 @@ Each layer has a specific job and **must not** reach across boundaries.
 - Detects the remote git host from a `RemoteURL` (`forge.go`, `github.go`, `gitlab.go`, `bitbucket.go`, `url.go`)
 - Builds PR/MR create + existing-PR discovery URLs via the `Forge` interface (`PRCreateURL`, `ExistingPRURL`)
 - Consumed by `internal/workflow/ship.go` after a successful push; forge errors never fail the ship flow since the push already completed
-- See `docs/domains/forge.md`
+- See [Git Domains Reference](git-domains.md)
 
 ---
 
@@ -105,7 +105,7 @@ cmd     →  passes error up to main
 main    →  prints the error via printError() — only main.go renders errors
 ```
 
-See `docs/error-handling.md` for detailed rules per layer.
+See [Error Handling](error-handling.md) for detailed rules per layer.
 
 ---
 
@@ -151,64 +151,30 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 
 ## Workflow files
 
-| File                               | Contents                                                                                                                                      |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                 |
-| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                            |
-| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`       |
-| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the recover invariant (`syncGit` seam + `prodSyncGit` adapter) |
-| `internal/workflow/repostate.go` | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspect()`, `requireNoInProgress()` guard shared by save/ship |
-| `internal/workflow/prompt.go`    | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr |
-| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit                                                                              |
-| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                               |
+| File                               | Contents                                                                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                   |
+| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                              |
+| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`         |
+| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the recover invariant (`syncGit` seam + `prodSyncGit` adapter)   |
+| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspect()`, `requireNoInProgress()` guard shared by save/ship                       |
+| `internal/workflow/prompt.go`      | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr |
+| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit                                                                                  |
+| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                                 |
 | `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot (upstream = configured remote via `CheckDivergence`)                                                 |
-| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                               |
+| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                              |
 
 ---
 
 ## Git domain files
 
-| File            | Operations                                                                                                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `branch.go`     | `CurrentBranch`, `Checkout`, `LocalBranchExists`, `MergedBranches`, `MergedRemoteBranches`, `DeleteLocalBranch`, `DeleteRemoteTrackingBranch`, `GetHEADState`, `ShortHeadHash`, `HEADState` |
-| `commit.go`     | `Commit`, `CommitEditor`, `CommitAllowEmpty`, `CommitAllowEmptyEditor`                                                                                                                      |
-| `detect.go`     | `DetectRemote`, `DetectDefaultBranch`                                                                                                                                                       |
-| `diff.go`       | `DiffStatCached`, `HasStagedChanges`, `DiffUnstagedFiles`, `CheckCachedDiff`                                                                                                                |
-| `divergence.go` | `Divergence`, `CheckDivergence`                                                                                                                                                           |
-| `log.go`        | `RecentCommits`, `CommitInfo`                                                                                                                                                               |
-| `merge.go`      | `Merge`, `IsMergeInProgress`, `MergeContinue`, `MergeAbort`, `ConflictedFiles`                                                                                                              |
-| `patterns.go`   | `MatchSensitivePatterns`, `FilterExcluded`, `SanitizePatterns`                                                                                                                              |
-| `rebase.go`     | `Rebase`, `RebaseAbort`, `RebaseContinue`, `RebaseSkip`, `IsRebaseInProgress`, `CurrentRebasePatchInfo`                                                                                     |
-| `remote.go`     | `Fetch`, `FastForward`, `RemoteExists`, `RemoteBranchExists`, `RemoteHEAD`, `Push`, `PushSetUpstream`, `PushForceWithLease`, `RemoteURL`, `DeleteRemoteBranch`, `IsNonFastForward`           |
-| `ref.go`        | `Qualify`, `StripRemote` — the ref vocabulary (idempotent qualification, prefix stripping) shared by the git layer                              |
-| `repository.go` | `IsRepository`                                                                                                                                                                              |
-| `stage.go`      | `AddAll`, `Add`, `AddPatch`                                                                                                                                                                 |
-| `stash.go`      | `StashList`, `StashPush`, `StashPop`, `DropGXStash`, `IsClean`, `HasGXStash`                                                                                           |
-| `status.go`     | `Status`, `NonEmptyStatus`, `SubmodulePaths`, `GetParsedStatus`, `FormatStagedLabel`, `StatusLabels`, `ParsedStatus`                                                        |
+The `internal/git/` package houses wrappers around git operations. Detailed signatures and behavior are documented in the [Git Domains Reference](git-domains.md).
 
 ---
 
-## Config (`.gx/config`)
+## Configuration (`.gx/config`)
 
-```json
-{
-  "remote": "origin",
-  "defaultBranch": "develop",
-  "syncStrategy": "rebase",
-  "sensitivePatterns": [".env", "*.pem", "*secret*", "*.key"],
-  "protectedBranches": ["main", "master", "develop"]
-}
-```
-
-| Field               | Default                         | Used by                                             |
-| ------------------- | ------------------------------- | --------------------------------------------------- |
-| `remote`            | `origin`                        | `sync` — remote to fetch from                       |
-| `defaultBranch`     | `develop`                       | `sync` — branch to sync against                     |
-| `syncStrategy`      | `rebase`                        | `sync` — `rebase` or `merge`                        |
-| `sensitivePatterns` | `[]` (seeded by `gx init`)      | `save` — glob patterns for sensitive file detection |
-| `protectedBranches` | `["main", "master", "develop"]` | `ship` — branches protected from direct push        |
-
-Missing file = `RequireConfig()` guard blocks most commands with "run gx init". The `config` package (`Load()`) falls back to defaults when the file is missing — only `gx config` and `gx init` use this path (both annotated `no_config`). Empty fields in file = fall back to defaults.
+See [Configuration Specification](../concepts/configuration.md) for the full schema, field descriptions, and fallback mechanics.
 
 ---
 
@@ -224,18 +190,7 @@ You need three files:
 
 **Exception — `gx config`** bypasses the workflow layer (reads/writes `.gx/config` via the `config` package directly).
 
-If the command introduces a **new git capability** (e.g. pushing, tagging, stashing), also add:
-
-| File                   | What goes in it                               |
-| ---------------------- | --------------------------------------------- |
-| `internal/git/push.go` | Git operations (one function per git command) |
-| `docs/domains/push.md` | Docs for developers extending that domain     |
-
-Existing commands reuse existing domain files. For example:
-
-- `gx ship` reuses `remote.go` (push functions live there) and adds `divergence.go`
-- `gx resolve` would add `conflict.go`
-- `gx tag` would add `tag.go`
+If the command introduces a **new git capability** (e.g. tagging, stashing), add the function to `internal/git/` and document it in `docs/internal/git-domains.md`.
 
 ---
 
@@ -260,15 +215,7 @@ No command leaves the repo in a silent broken state.
 
 ## Sync state machine
 
-See `docs/commands/sync.md` for the full Q1–Q6 state machine. Key signals:
-
-| Signal             | Detection                                               |
-| ------------------ | ------------------------------------------------------- |
-| `RebaseInProgress` | `os.Stat` on `.git/rebase-merge` or `.git/rebase-apply` |
-| `MergeInProgress`  | `git rev-parse -q --verify MERGE_HEAD`                  |
-| `HasGXStash`       | `git stash list` parsed for `gx-sync/` prefix           |
-
-The gx stash presence is the signal distinguishing gx-orchestrated pauses from manual ones.
+See [Sync State Machine](../concepts/sync-machine.md) for the full Q1–Q6 state classification, stash isolation invariants, and pause recovery flows.
 
 ---
 

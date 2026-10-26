@@ -51,7 +51,7 @@ gx status    # see where you stand
 | `gx config` | Read/write `.gx/config` values                                        |
 | `gx clean`  | Prune branches already merged into base                               |
 
-Full behavior and flags for each are documented under `src/docs/commands/`.
+Full behavior and flags for each are documented under `docs/commands/`.
 
 ### Planned, not yet implemented
 
@@ -87,4 +87,4 @@ Edit values directly or via `gx config <key> <value>`.
 
 ## Contributing / internals
 
-Architecture, layering rules, and per-command specs live in `src/docs/`.
+Architecture, layering rules, and specifications live in `docs/`.
