@@ -26,13 +26,12 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" || $0 ~ "^## " v "( |$)" { found = 1; next }
-            found && /^## /                                   { exit }
-            found                                             { print }
+            $0 ~ "^## " v "( |$)" { found = 1; next }
+            found && /^## /       { exit }
+            found                 { print }
           ' CHANGELOG.md > notes.md
-
           if [ ! -s notes.md ]; then
-            echo "::error::no '## $version' or '## [$version]' section found in CHANGELOG.md"
+            echo "::error::no '## $version' section found in CHANGELOG.md"
             exit 1
           fi
 
