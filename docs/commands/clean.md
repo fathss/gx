@@ -38,8 +38,11 @@ Confirmation prompts default to `No`: pressing Enter, typing `n`, or sending EOF
 ```bash
 gx clean
 # ▸ git fetch --prune origin
-# Prune 1 merged branch(es) from this clone?
-#   feature/old-login [y/N]: y
+# Merged branches eligible for pruning in this clone:
+#
+# Local branches:
+#   feature/old-login
+# Prune 1 merged branch(es) from this clone? [y/N]: y
 # ▸ git branch -d feature/old-login
 # Deleted branch feature/old-login (was abc1234).
 # Pruned 1 branches.
@@ -50,12 +53,18 @@ gx clean
 ```bash
 gx clean --remote
 # ▸ git fetch --prune origin
-# Prune 2 merged branch(es) from this clone?
+# Merged branches eligible for pruning in this clone:
+#
+# Remote-tracking refs:
 #   origin/feature/old-a
-#   origin/feature/old-b [y/N]: y
-# Delete 2 remote branch(es) on origin?
+#   origin/feature/old-b
+# Prune 2 merged branch(es) from this clone? [y/N]: y
+# Remote branches eligible for pruning on origin:
+#
+# Remote branches:
 #   origin/feature/old-a
-#   origin/feature/old-b [y/N]: y
+#   origin/feature/old-b
+# Delete 2 remote branch(es) on origin? [y/N]: y
 # ▸ git branch -d -r origin/feature/old-a
 # ▸ git branch -d -r origin/feature/old-b
 # ▸ git push origin --delete feature/old-a

@@ -71,52 +71,48 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	//    remote scope when --remote was requested. Every prompt defaults to No,
 	//    and --yes answers both with yes without asking.
 	var doLocalDelete bool
-	if len(filteredLocal) > 0 || len(filteredRemoteTracking) > 0 {
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal)+len(filteredRemoteTracking)))
-		for _, br := range filteredLocal {
-			b.WriteString(fmt.Sprintf("\n  %s", br))
-		}
-		for _, br := range filteredRemoteTracking {
-			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
-		}
-		if pager.ShouldPage(b.String()) {
+	totalLocal := len(filteredLocal) + len(filteredRemoteTracking)
+	if totalLocal > 0 {
+		if !yes {
+			var b strings.Builder
+			b.WriteString("Merged branches eligible for pruning in this clone:")
+			if len(filteredLocal) > 0 {
+				b.WriteString("\n\nLocal branches:")
+				for _, br := range filteredLocal {
+					b.WriteString(fmt.Sprintf("\n  %s", br))
+				}
+			}
+			if len(filteredRemoteTracking) > 0 {
+				b.WriteString("\n\nRemote-tracking refs:")
+				for _, br := range filteredRemoteTracking {
+					b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
+				}
+			}
 			_ = pager.Print(b.String())
-			confirmed, err := prompts.Confirm(fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal)+len(filteredRemoteTracking)))
-			if err != nil {
-				return err
-			}
-			doLocalDelete = confirmed
-		} else {
-			confirmed, err := prompts.Confirm(b.String())
-			if err != nil {
-				return err
-			}
-			doLocalDelete = confirmed
 		}
+		confirmed, err := prompts.Confirm(fmt.Sprintf("Prune %d merged branch(es) from this clone?", totalLocal))
+		if err != nil {
+			return err
+		}
+		doLocalDelete = confirmed
 	}
 
 	var doRemoteDelete bool
 	if remote && len(remoteToDelete) > 0 {
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
-		for _, br := range remoteToDelete {
-			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
-		}
-		if pager.ShouldPage(b.String()) {
+		if !yes {
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("Remote branches eligible for pruning on %s:", cfg.Remote))
+			b.WriteString("\n\nRemote branches:")
+			for _, br := range remoteToDelete {
+				b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
+			}
 			_ = pager.Print(b.String())
-			confirmed, err := prompts.Confirm(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
-			if err != nil {
-				return err
-			}
-			doRemoteDelete = confirmed
-		} else {
-			confirmed, err := prompts.Confirm(b.String())
-			if err != nil {
-				return err
-			}
-			doRemoteDelete = confirmed
 		}
+		confirmed, err := prompts.Confirm(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
+		if err != nil {
+			return err
+		}
+		doRemoteDelete = confirmed
 	}
 
 	// 6. Delete in order: local, remote-tracking, remote.
