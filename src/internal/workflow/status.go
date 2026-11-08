@@ -7,6 +7,7 @@ import (
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/config"
 	"github.com/fathss/gx/internal/git"
+	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
 )
 
@@ -54,6 +55,9 @@ func Status(run runner.Executor, cfg *config.Config) error {
 		}
 	}
 
+	stagedStats, _ := git.DiffNumstat(run, true)
+	unstagedStats, _ := git.DiffNumstat(run, false)
+
 	// Build sections
 	var sections []string
 	sections = append(sections, branchLine)
@@ -80,7 +84,15 @@ func Status(run runner.Executor, cfg *config.Config) error {
 			}
 			label := git.FormatStagedLabel(letter)
 			for _, f := range files {
-				stagedLines = append(stagedLines, fmt.Sprintf("  %s:  %s", label, f))
+				statStr := ""
+				if stat, ok := stagedStats[f]; ok {
+					statStr = git.FormatDiffStat(stat)
+				}
+				if statStr != "" {
+					stagedLines = append(stagedLines, fmt.Sprintf("  %s:  %s %s", label, f, statStr))
+				} else {
+					stagedLines = append(stagedLines, fmt.Sprintf("  %s:  %s", label, f))
+				}
 			}
 		}
 	}
@@ -93,7 +105,15 @@ func Status(run runner.Executor, cfg *config.Config) error {
 		if len(ps.UnstagedFiles) > 0 {
 			unstagedLines = append(unstagedLines, "Unstaged:")
 			for _, f := range ps.UnstagedFiles {
-				unstagedLines = append(unstagedLines, fmt.Sprintf("  modified:  %s", f))
+				statStr := ""
+				if stat, ok := unstagedStats[f]; ok {
+					statStr = git.FormatDiffStat(stat)
+				}
+				if statStr != "" {
+					unstagedLines = append(unstagedLines, fmt.Sprintf("  modified:  %s %s", f, statStr))
+				} else {
+					unstagedLines = append(unstagedLines, fmt.Sprintf("  modified:  %s", f))
+				}
 			}
 		}
 
@@ -184,9 +204,7 @@ func Status(run runner.Executor, cfg *config.Config) error {
 	sections = append(sections, strings.Join(commitLines, "\n"))
 
 	// Print the assembled output (sections separated by blank lines)
-	fmt.Println(strings.Join(sections, "\n\n"))
-
-	return nil
+	return pager.Print(strings.Join(sections, "\n\n"))
 }
 
 // totalStaged returns the total number of staged files across all status types.

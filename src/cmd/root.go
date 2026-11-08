@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
 	"github.com/fathss/gx/internal/workflow"
 
@@ -15,6 +16,7 @@ import (
 var (
 	Version          = "0.1.0"
 	verbose          bool
+	noPager          bool
 	run              *runner.Runner
 	annotateBuiltins sync.Once
 )
@@ -50,6 +52,8 @@ Use --verbose to see every git command gx runs under the hood.`,
 			}
 		})
 
+		pager.SetNoPager(noPager)
+
 		if _, ok := cmd.Annotations["no_repo"]; !ok {
 			if err := workflow.RequireRepository(run); err != nil {
 				return err
@@ -69,6 +73,7 @@ func Execute() error {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "print every git command gx runs")
+	rootCmd.PersistentFlags().BoolVar(&noPager, "no-pager", false, "suppress the pager for commands that paginate output")
 	cobra.OnInitialize(initRunner)
 }
 

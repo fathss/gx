@@ -203,6 +203,7 @@ gx clean
 ## Global Flags
 
 - **`-v, --verbose`**: Print every underlying git command executed under the hood.
+- **`--no-pager`**: Suppress terminal paging for commands that paginate output.
 - **`--version`**: Display the installed gx version.
 - **`-h, --help`**: Help for any command.
 

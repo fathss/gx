@@ -26,6 +26,7 @@ gx status
 | Flag              | Description                                                                               |
 | ----------------- | ----------------------------------------------------------------------------------------- |
 | `--verbose`, `-v` | Show underlying git plumbing commands (`git status --porcelain`, `git stash list`, etc.). |
+| `--no-pager`      | Suppress the pager when output exceeds terminal height.                                   |
 
 ---
 

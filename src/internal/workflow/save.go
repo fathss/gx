@@ -7,6 +7,7 @@ import (
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/config"
 	"github.com/fathss/gx/internal/git"
+	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
 )
 
@@ -73,23 +74,42 @@ func Save(run runner.Executor, cfg *config.Config, files []string, msg string, p
 
 		if !patchMode {
 			// Print categorized preview (skip in patch+exclude mode — user selects hunks interactively)
-			fmt.Println("Modified tracked files:")
+			unstagedStats, _ := git.DiffNumstat(run, false)
+			stagedStats, _ := git.DiffNumstat(run, true)
+
+			var previewLines []string
+			previewLines = append(previewLines, "Modified tracked files:")
 			if len(treeModified) == 0 {
-				fmt.Println("  (none)")
+				previewLines = append(previewLines, "  (none)")
 			} else {
 				for _, f := range treeModified {
-					fmt.Printf("  %s\n", f)
+					stat := unstagedStats[f]
+					if st, ok := stagedStats[f]; ok {
+						stat.Insertions += st.Insertions
+						stat.Deletions += st.Deletions
+						if st.Binary {
+							stat.Binary = true
+						}
+					}
+					statStr := git.FormatDiffStat(stat)
+					if statStr != "" {
+						previewLines = append(previewLines, fmt.Sprintf("  %s %s", f, statStr))
+					} else {
+						previewLines = append(previewLines, fmt.Sprintf("  %s", f))
+					}
 				}
 			}
 
-			fmt.Println("\nNew untracked files:")
+			previewLines = append(previewLines, "", "New untracked files:")
 			if len(treeUntracked) == 0 {
-				fmt.Println("  (none)")
+				previewLines = append(previewLines, "  (none)")
 			} else {
 				for _, f := range treeUntracked {
-					fmt.Printf("  %s\n", f)
+					previewLines = append(previewLines, fmt.Sprintf("  %s", f))
 				}
 			}
+
+			_ = pager.Print(strings.Join(previewLines, "\n"))
 
 			// Prompt for untracked files
 			var stageUntracked bool
@@ -226,7 +246,7 @@ func Save(run runner.Executor, cfg *config.Config, files []string, msg string, p
 		// Non-fatal: diffstat is informational
 		fmt.Println("(could not compute diffstat)")
 	} else if diffStat != "" {
-		fmt.Println(diffStat)
+		_ = pager.Print(diffStat)
 	}
 
 	// 6. Empty commit guard

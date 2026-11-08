@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/config"
+	"github.com/fathss/gx/internal/pager"
 
 	"github.com/spf13/cobra"
 )
@@ -120,6 +122,7 @@ Examples:
 }
 
 func printConfig() error {
+	var lines []string
 	for _, key := range config.Keys() {
 		val, err := config.Get(key)
 		if err != nil {
@@ -130,9 +133,9 @@ func printConfig() error {
 		if val == "" {
 			val = "(not set)"
 		}
-		fmt.Printf("%-20s %s\n", key, val)
+		lines = append(lines, fmt.Sprintf("%-20s %s", key, val))
 	}
-	return nil
+	return pager.Print(strings.Join(lines, "\n"))
 }
 
 func init() {

@@ -7,6 +7,7 @@ import (
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/config"
 	"github.com/fathss/gx/internal/git"
+	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
 )
 
@@ -79,11 +80,20 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 		for _, br := range filteredRemoteTracking {
 			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 		}
-		confirmed, err := prompts.Confirm(b.String())
-		if err != nil {
-			return err
+		if pager.ShouldPage(b.String()) {
+			_ = pager.Print(b.String())
+			confirmed, err := prompts.Confirm(fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal)+len(filteredRemoteTracking)))
+			if err != nil {
+				return err
+			}
+			doLocalDelete = confirmed
+		} else {
+			confirmed, err := prompts.Confirm(b.String())
+			if err != nil {
+				return err
+			}
+			doLocalDelete = confirmed
 		}
-		doLocalDelete = confirmed
 	}
 
 	var doRemoteDelete bool
@@ -93,11 +103,20 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 		for _, br := range remoteToDelete {
 			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 		}
-		confirmed, err := prompts.Confirm(b.String())
-		if err != nil {
-			return err
+		if pager.ShouldPage(b.String()) {
+			_ = pager.Print(b.String())
+			confirmed, err := prompts.Confirm(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
+			if err != nil {
+				return err
+			}
+			doRemoteDelete = confirmed
+		} else {
+			confirmed, err := prompts.Confirm(b.String())
+			if err != nil {
+				return err
+			}
+			doRemoteDelete = confirmed
 		}
-		doRemoteDelete = confirmed
 	}
 
 	// 6. Delete in order: local, remote-tracking, remote.
