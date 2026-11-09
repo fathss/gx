@@ -8,11 +8,20 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+
+	"github.com/fathss/gx/internal/ui"
 )
 
 // WarnFunc is a handler for non-fatal warnings.
 // The cmd layer wires this to write to stderr with appropriate formatting.
 type WarnFunc func(msg, hint string)
+
+// SuccessFunc is a handler for non-fatal success notifications.
+type SuccessFunc func(msg string)
+
+// InfoFunc is a handler for non-fatal informational messages.
+type InfoFunc func(msg string)
 
 // Executor is the seam through which the rest of gx runs git commands.
 // The production implementation is *Runner; tests provide their own
@@ -25,6 +34,13 @@ type Executor interface {
 	CombinedOutput(args ...string) (string, error)
 	Warn(msg string)
 	Warnf(msg, hint string)
+	Success(msg string)
+	Info(msg string)
+	StartProgress(msg string)
+	UpdateProgress(msg string)
+	EndProgress(success bool, msg, hint string)
+	State(msg string)
+	StopSpinner()
 }
 
 // CommandError reports a failed git command together with the stderr it
@@ -45,11 +61,82 @@ func (e *CommandError) Error() string {
 }
 
 type Runner struct {
-	Verbose bool
-	WarnFn  WarnFunc
+	Verbose   bool
+	WarnFn    WarnFunc
+	SuccessFn SuccessFunc
+	InfoFn    InfoFunc
+	spinner   *ui.Spinner
+	mu        sync.Mutex
 }
 
 var _ Executor = (*Runner)(nil)
+
+// isInteractive reports whether interactive animations (like spinners) should be used.
+func (r *Runner) isInteractive() bool {
+	if r.Verbose {
+		return false
+	}
+	if os.Getenv("GX_INTERACTIVE") == "1" {
+		return true
+	}
+	return ui.IsTerminal(os.Stdout.Fd())
+}
+
+// State announces a new workflow state, printing the state message in dim text
+// and ensuring a single spinner is active below it.
+func (r *Runner) State(msg string) {
+	if !r.isInteractive() {
+		fmt.Println(ui.Dim(msg))
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.spinner != nil {
+		r.spinner.Stop()
+		r.spinner = nil
+	}
+
+	fmt.Println(ui.Dim(msg))
+
+	r.spinner = ui.NewSpinner("", ui.WithTTY(true))
+	r.spinner.Start()
+}
+
+// StopSpinner stops and clears the current spinner if one is active.
+func (r *Runner) StopSpinner() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.spinner != nil {
+		r.spinner.Stop()
+		r.spinner = nil
+	}
+}
+
+// StartProgress begins a progress indicator with the given message.
+func (r *Runner) StartProgress(msg string) {
+	r.State(msg)
+}
+
+// UpdateProgress updates the current progress message.
+func (r *Runner) UpdateProgress(msg string) {
+	r.State(msg)
+}
+
+// EndProgress terminates the current progress indicator with success or failure.
+func (r *Runner) EndProgress(success bool, msg, hint string) {
+	r.StopSpinner()
+	if success {
+		if msg != "" {
+			r.Success(msg)
+		}
+	} else {
+		if msg != "" {
+			r.Warnf(msg, hint)
+		}
+	}
+}
 
 // Warn emits a non-fatal warning message via the configured handler.
 func (r *Runner) Warn(msg string) {
@@ -58,8 +145,24 @@ func (r *Runner) Warn(msg string) {
 
 // Warnf emits a non-fatal warning with a hint.
 func (r *Runner) Warnf(msg, hint string) {
+	r.StopSpinner()
 	if r.WarnFn != nil {
 		r.WarnFn(msg, hint)
+	}
+}
+
+// Success emits a non-fatal success notification via the configured handler.
+func (r *Runner) Success(msg string) {
+	r.StopSpinner()
+	if r.SuccessFn != nil {
+		r.SuccessFn(msg)
+	}
+}
+
+// Info emits a non-fatal informational message via the configured handler.
+func (r *Runner) Info(msg string) {
+	if r.InfoFn != nil {
+		r.InfoFn(msg)
 	}
 }
 
@@ -87,39 +190,60 @@ func newCommandError(args []string, err error, stderr string) error {
 	return err
 }
 
-func (r *Runner) Run(args ...string) error {
-	fmt.Println("▸ git", strings.Join(args, " "))
+func (r *Runner) runCommand(cmd *exec.Cmd, args []string) error {
+	if r.Verbose {
+		r.StopSpinner()
+		fmt.Println("▸ git", strings.Join(args, " "))
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
 
-	cmd := exec.Command("git", args...)
+		var stderrBuffer bytes.Buffer
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuffer)
+
+		if err := cmd.Run(); err != nil {
+			return newCommandError(args, err, stderrBuffer.String())
+		}
+		return nil
+	}
+
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
 
-	// Tee stderr: stream it live for the user, capture it for CommandError.
-	var stderrBuffer bytes.Buffer
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuffer)
+	// When committing via an editor (no -m flag), git needs direct terminal I/O
+	isEditorCommit := len(args) > 0 && args[0] == "commit" && !hasFlag(args, "-m")
+	if isEditorCommit {
+		r.StopSpinner()
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		var stderrBuffer bytes.Buffer
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuffer)
+		if err := cmd.Run(); err != nil {
+			return newCommandError(args, err, stderrBuffer.String())
+		}
+		return nil
+	}
 
-	if err := cmd.Run(); err != nil {
+	var stdoutBuffer, stderrBuffer bytes.Buffer
+	cmd.Stdout = &stdoutBuffer
+	cmd.Stderr = &stderrBuffer
+
+	err := cmd.Run()
+	if err != nil {
+		r.StopSpinner()
 		return newCommandError(args, err, stderrBuffer.String())
 	}
 	return nil
 }
 
+func (r *Runner) Run(args ...string) error {
+	cmd := exec.Command("git", args...)
+	return r.runCommand(cmd, args)
+}
+
 // RunWithEnv is like Run but prepends extraEnv to the subprocess environment.
 func (r *Runner) RunWithEnv(extraEnv []string, args ...string) error {
-	fmt.Println("▸ git", strings.Join(args, " "))
-
 	cmd := exec.Command("git", args...)
 	cmd.Env = append(os.Environ(), extraEnv...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-
-	var stderrBuffer bytes.Buffer
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuffer)
-
-	if err := cmd.Run(); err != nil {
-		return newCommandError(args, err, stderrBuffer.String())
-	}
-	return nil
+	return r.runCommand(cmd, args)
 }
 
 func (r *Runner) Output(args ...string) (string, error) {
@@ -151,4 +275,13 @@ func (r *Runner) CombinedOutput(args ...string) (string, error) {
 		return trimmed, newCommandError(args, err, trimmed)
 	}
 	return trimmed, nil
+}
+
+func hasFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
 }

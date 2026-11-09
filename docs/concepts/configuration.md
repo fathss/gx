@@ -23,7 +23,7 @@ Persistent configuration for `gx` is stored at `.gx/config` relative to the repo
 | `remote`            | `remote`                      | string   | `"origin"`                               | Default remote name for fetch, sync, and ship.                               |
 | `defaultBranch`     | `defaultBranch`               | string   | `"develop"`                              | Trunk/base branch to sync against and check merged candidates.               |
 | `syncStrategy`      | `syncStrategy`                | string   | `"rebase"`                               | Strategy used by `gx sync` (`"rebase"` or `"merge"`).                        |
-| `sensitivePatterns` | `sensitivePatterns,omitempty` | []string | `[".env", "*.pem", "*secret*", "*.key"]` | Glob patterns blocked from accidental staging in `gx save`.                  |
+| `sensitivePatterns` | `sensitivePatterns,omitempty` | []string | `[".env", "*.pem", "*secret*", "*.key"]` | Glob patterns blocked from accidental staging in `gx stage` and `gx save`.   |
 | `protectedBranches` | `protectedBranches,omitempty` | []string | `["main", "master", "develop"]`          | Branches protected from direct push in `gx ship` and deletion in `gx clean`. |
 
 ---

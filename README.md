@@ -3,7 +3,6 @@
 [![CI](https://github.com/fathss/gx/actions/workflows/ci.yml/badge.svg)](https://github.com/fathss/gx/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fathss/gx)](https://github.com/fathss/gx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/fathss/gx)](https://goreportcard.com/report/github.com/fathss/gx)
 
 **gx** is an opinionated Git CLI that wraps multi-step git workflows into safe, single commands — sync, save, and ship without manually juggling `stash`, `fetch`, `rebase`, and `push` every time.
 
@@ -174,13 +173,16 @@ gx status
 # 3. Pull latest base branch updates into your feature branch
 gx sync
 
-# 4. Review, stage, and commit changes with safety guards
+# 4. Stage changes with sensitive file checks (optional)
+gx stage
+
+# 5. Review, stage, and commit changes with safety guards
 gx save -m "feat: implement user authentication"
 
-# 5. Push feature branch and generate PR creation URL
+# 6. Push feature branch and generate PR creation URL
 gx ship
 
-# 6. Prune local and remote branches already merged into base
+# 7. Prune local and remote branches already merged into base
 gx clean
 ```
 
@@ -192,9 +194,10 @@ gx clean
 | --------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
 | **`gx init`**   | Auto-detect remote/default branch and seed `.gx/config`              | [docs/commands/init.md](docs/commands/init.md)     |
 | **`gx sync`**   | Stash, fetch, rebase/merge base branch, and restore stash cleanly    | [docs/commands/sync.md](docs/commands/sync.md)     |
+| **`gx stage`**  | Stage changes with sensitive file guardrails and preview (`gx add`)  | [docs/commands/stage.md](docs/commands/stage.md)   |
 | **`gx save`**   | Preview changes, block sensitive files, and commit                   | [docs/commands/save.md](docs/commands/save.md)     |
 | **`gx ship`**   | Push branch with lease, enforce branch protection, and print PR link | [docs/commands/ship.md](docs/commands/ship.md)     |
-| **`gx status`** | Synthesized 6-section human-readable repository snapshot             | [docs/commands/status.md](docs/commands/status.md) |
+| **`gx status`** | Synthesized structured human-readable repository snapshot            | [docs/commands/status.md](docs/commands/status.md) |
 | **`gx clean`**  | Prune merged local and remote branches safely                        | [docs/commands/clean.md](docs/commands/clean.md)   |
 | **`gx config`** | Inspect and update configuration settings                            | [docs/commands/config.md](docs/commands/config.md) |
 
@@ -203,6 +206,7 @@ gx clean
 ## Global Flags
 
 - **`-v, --verbose`**: Print every underlying git command executed under the hood.
+- **`--no-pager`**: Suppress terminal paging for commands that paginate output.
 - **`--version`**: Display the installed gx version.
 - **`-h, --help`**: Help for any command.
 

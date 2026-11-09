@@ -6,7 +6,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
+	"github.com/fathss/gx/internal/ui"
 	"github.com/fathss/gx/internal/workflow"
 
 	"github.com/spf13/cobra"
@@ -15,6 +17,7 @@ import (
 var (
 	Version          = "0.1.0"
 	verbose          bool
+	noPager          bool
 	run              *runner.Runner
 	annotateBuiltins sync.Once
 )
@@ -50,6 +53,8 @@ Use --verbose to see every git command gx runs under the hood.`,
 			}
 		})
 
+		pager.SetNoPager(noPager)
+
 		if _, ok := cmd.Annotations["no_repo"]; !ok {
 			if err := workflow.RequireRepository(run); err != nil {
 				return err
@@ -69,13 +74,20 @@ func Execute() error {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "print every git command gx runs")
+	rootCmd.PersistentFlags().BoolVar(&noPager, "no-pager", false, "suppress the pager for commands that paginate output")
 	cobra.OnInitialize(initRunner)
 }
 
 func initRunner() {
 	run = runner.New(verbose)
+	run.SuccessFn = func(msg string) {
+		fmt.Println(msg)
+	}
+	run.InfoFn = func(msg string) {
+		fmt.Println(ui.Dim(msg))
+	}
 	run.WarnFn = func(msg, hint string) {
-		fmt.Fprintf(os.Stderr, "⚠ %s\n", msg)
+		fmt.Fprintf(os.Stderr, "%s\n", ui.Warning(msg))
 		if hint != "" {
 			for _, line := range strings.Split(hint, "\n") {
 				fmt.Fprintf(os.Stderr, "  %s\n", line)

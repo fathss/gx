@@ -7,6 +7,7 @@ import (
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/config"
 	"github.com/fathss/gx/internal/git"
+	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
 )
 
@@ -20,6 +21,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	prompts.autoYes = yes
 
 	// 1. Fetch from remote so merged decision reflects current remote state.
+	run.State(fmt.Sprintf("Fetching %s...", cfg.Remote))
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
 			Message: fmt.Sprintf("Failed to fetch from %q.", cfg.Remote),
@@ -69,17 +71,28 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	//    Local scope first (local branches + remote-tracking refs), then the
 	//    remote scope when --remote was requested. Every prompt defaults to No,
 	//    and --yes answers both with yes without asking.
+	run.StopSpinner()
 	var doLocalDelete bool
-	if len(filteredLocal) > 0 || len(filteredRemoteTracking) > 0 {
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal)+len(filteredRemoteTracking)))
-		for _, br := range filteredLocal {
-			b.WriteString(fmt.Sprintf("\n  %s", br))
+	totalLocal := len(filteredLocal) + len(filteredRemoteTracking)
+	if totalLocal > 0 {
+		if !yes {
+			var b strings.Builder
+			b.WriteString("Merged branches eligible for pruning in this clone:")
+			if len(filteredLocal) > 0 {
+				b.WriteString("\n\nLocal branches:")
+				for _, br := range filteredLocal {
+					b.WriteString(fmt.Sprintf("\n  %s", br))
+				}
+			}
+			if len(filteredRemoteTracking) > 0 {
+				b.WriteString("\n\nRemote-tracking refs:")
+				for _, br := range filteredRemoteTracking {
+					b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
+				}
+			}
+			_ = pager.Print(b.String())
 		}
-		for _, br := range filteredRemoteTracking {
-			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
-		}
-		confirmed, err := prompts.Confirm(b.String())
+		confirmed, err := prompts.Confirm(fmt.Sprintf("Prune %d merged branch(es) from this clone?", totalLocal))
 		if err != nil {
 			return err
 		}
@@ -88,12 +101,16 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 
 	var doRemoteDelete bool
 	if remote && len(remoteToDelete) > 0 {
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
-		for _, br := range remoteToDelete {
-			b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
+		if !yes {
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("Remote branches eligible for pruning on %s:", cfg.Remote))
+			b.WriteString("\n\nRemote branches:")
+			for _, br := range remoteToDelete {
+				b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
+			}
+			_ = pager.Print(b.String())
 		}
-		confirmed, err := prompts.Confirm(b.String())
+		confirmed, err := prompts.Confirm(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
 		if err != nil {
 			return err
 		}
@@ -103,6 +120,17 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	// 6. Delete in order: local, remote-tracking, remote.
 	pruned := 0
 	var firstErr error
+
+	toPrune := 0
+	if doLocalDelete {
+		toPrune += len(filteredLocal) + len(filteredRemoteTracking)
+	}
+	if doRemoteDelete {
+		toPrune += len(remoteToDelete)
+	}
+	if toPrune > 0 {
+		run.State(fmt.Sprintf("Pruning %d branches...", toPrune))
+	}
 
 	if doLocalDelete {
 		for _, br := range filteredLocal {
@@ -146,13 +174,13 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 
 	// 7. Summary line.
 	if firstErr != nil {
-		fmt.Printf("Pruned %d branches — their commits remain on %s.\n", pruned, cfg.DefaultBranch)
+		run.Info(fmt.Sprintf("Pruned %d branches — their commits remain on %s.", pruned, cfg.DefaultBranch))
 		return &cli.Error{
 			Message: "Failed to prune some branches.",
 			Hint:    fmt.Sprintf("Check the error above and try again. Pruned branches' commits remain on %s.", cfg.DefaultBranch),
 		}
 	}
-	fmt.Printf("Pruned %d branches.\n", pruned)
+	run.Success(fmt.Sprintf("Pruned %d branches.", pruned))
 	return nil
 }
 

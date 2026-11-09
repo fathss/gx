@@ -46,6 +46,7 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 
 	// 4. Fetch remote to update remote-tracking refs, then check divergence
 	//    against the configured remote — gx's one notion of upstream.
+	run.State(fmt.Sprintf("Fetching %s...", cfg.Remote))
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
 			Message: fmt.Sprintf("Failed to fetch branch %q from %q.", current, cfg.Remote),
@@ -96,6 +97,7 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 	}
 
 	// 5. Push
+	run.State(fmt.Sprintf("Pushing %s to %s...", current, cfg.Remote))
 	if err := pushFn(); err != nil {
 		hint := "Check the error above."
 		if git.IsNonFastForward(err) {
@@ -107,7 +109,7 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 		}
 	}
 
-	fmt.Printf("✔ Pushed %s → %s\n", current, cfg.Remote)
+	run.Success(fmt.Sprintf("Pushed %s → %s", current, cfg.Remote))
 
 	// 6. PR URL (unless --no-pr)
 	if noPR {

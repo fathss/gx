@@ -75,6 +75,12 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
   Runs `git diff --name-only`. Returns modified tracked files that have unstaged changes.
 - **`CheckCachedDiff(run runner.Executor) (string, error)`**  
   Runs `git diff --cached --check` to detect conflict markers in staged files.
+- **`DiffNumstat(run runner.Executor, cached bool) (map[string]FileDiffStat, error)`**  
+  Runs `git diff --numstat` (or `--cached`) and parses numeric insertion/deletion stats per file.
+- **`ParseNumstat(out string) map[string]FileDiffStat`**  
+  Parses raw numstat output into structured `FileDiffStat{Insertions, Deletions, Binary}` records.
+- **`FormatDiffStat(stat FileDiffStat) string`**  
+  Formats file diff stats into colored representations (e.g. `+12 -3`, `+5`, `-2`, `[binary]`).
 
 ### `patterns.go`
 
@@ -226,9 +232,10 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
 - **`StatusLabels`**  
   Map translating porcelain letters (`M`, `A`, `D`, `R`) to display strings (`modified`, `new file`, `deleted`, `renamed`).
 - **`GetParsedStatus(run runner.Executor) (*ParsedStatus, error)`**  
-  Executes `git status --porcelain --untracked-files=all` and parses entries into:
+  Executes `git status --porcelain -uall` and parses entries into:
   - `StagedFiles map[string][]string`
   - `UnstagedFiles []string`
+  - `UnstagedByStatus map[string]string` (path -> status letter e.g. M, D)
   - `UntrackedFiles []string`
   - `ConflictedFiles []string`
   - `ModifiedFiles []string`

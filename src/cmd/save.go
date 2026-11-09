@@ -12,6 +12,7 @@ import (
 
 var (
 	saveMsg            string
+	saveAll            bool
 	savePatch          bool
 	saveAllowSensitive bool
 	saveAllowEmpty     bool
@@ -25,10 +26,12 @@ var saveCmd = &cobra.Command{
 
 Without arguments, gx save scans the working tree, shows a categorized
 preview of modified and untracked files, prompts for confirmation on
-untracked files, and proceeds to commit.
+untracked files, and proceeds to commit. If changes are already staged,
+gx save directly commits them without re-staging remaining working tree files.
 
 Flags:
   -m <msg>              Commit with the given message (skip editor)
+  -a, --all             Stage all modified tracked files before committing
   --patch               Select hunks interactively (git add -p)
   --allow-sensitive     Override sensitive-pattern blocking
   --allow-empty         Allow committing with nothing staged
@@ -37,6 +40,7 @@ Flags:
 Examples:
   gx save                            Interactive commit
   gx save -m "fix: login bug"        Quick commit with message
+  gx save -a -m "feat: everything"   Stage all files and commit
   gx save src/foo.go                 Stage and commit specific files
   gx save --patch                    Select hunks interactively
   gx save --allow-sensitive          Commit even with sensitive files`,
@@ -57,13 +61,22 @@ Examples:
 			return err
 		}
 
-		return workflow.Save(run, cfg, args, saveMsg, savePatch, saveAllowSensitive, saveAllowEmpty, saveExclude)
+		return workflow.Save(run, cfg, workflow.SaveOptions{
+			Files:           args,
+			Message:         saveMsg,
+			All:             saveAll,
+			Patch:           savePatch,
+			AllowSensitive:  saveAllowSensitive,
+			AllowEmpty:      saveAllowEmpty,
+			ExcludePatterns: saveExclude,
+		})
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(saveCmd)
 	saveCmd.Flags().StringVarP(&saveMsg, "message", "m", "", "commit message (skip editor)")
+	saveCmd.Flags().BoolVarP(&saveAll, "all", "a", false, "stage all modified tracked files before committing")
 	saveCmd.Flags().BoolVar(&savePatch, "patch", false, "interactively select hunks to stage")
 	saveCmd.Flags().BoolVar(&saveAllowSensitive, "allow-sensitive", false, "override sensitive-pattern blocking")
 	saveCmd.Flags().BoolVar(&saveAllowEmpty, "allow-empty", false, "allow committing with nothing staged")

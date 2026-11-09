@@ -17,11 +17,12 @@ var StatusLabels = map[string]string{
 
 // ParsedStatus holds a structured representation of git status --porcelain.
 type ParsedStatus struct {
-	StagedFiles     map[string][]string // indexed by status letter (M, A, D, R)
-	UnstagedFiles   []string
-	UntrackedFiles  []string
-	ConflictedFiles []string
-	ModifiedFiles   []string // every non-untracked entry, in porcelain order (Status()'s view)
+	StagedFiles      map[string][]string // indexed by status letter (M, A, D, R)
+	UnstagedFiles    []string
+	UnstagedByStatus map[string]string // path -> status letter (M, D)
+	UntrackedFiles   []string
+	ConflictedFiles  []string
+	ModifiedFiles    []string // every non-untracked entry, in porcelain order (Status()'s view)
 }
 
 // parsePorcelain parses `git status --porcelain -uall` output. Single
@@ -34,7 +35,8 @@ type ParsedStatus struct {
 // Unmerged entries (U*, AA, DD) belong to ConflictedFiles only.
 func parsePorcelain(out string) *ParsedStatus {
 	ps := &ParsedStatus{
-		StagedFiles: make(map[string][]string),
+		StagedFiles:      make(map[string][]string),
+		UnstagedByStatus: make(map[string]string),
 	}
 	if out == "" {
 		return ps
@@ -63,6 +65,7 @@ func parsePorcelain(out string) *ParsedStatus {
 			}
 			if y == 'M' || y == 'D' {
 				ps.UnstagedFiles = append(ps.UnstagedFiles, path)
+				ps.UnstagedByStatus[path] = string(y)
 			}
 		}
 	}
