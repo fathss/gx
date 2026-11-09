@@ -3,7 +3,6 @@
 [![CI](https://github.com/fathss/gx/actions/workflows/ci.yml/badge.svg)](https://github.com/fathss/gx/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fathss/gx)](https://github.com/fathss/gx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/fathss/gx)](https://goreportcard.com/report/github.com/fathss/gx)
 
 **gx** is an opinionated Git CLI that wraps multi-step git workflows into safe, single commands — sync, save, and ship without manually juggling `stash`, `fetch`, `rebase`, and `push` every time.
 
@@ -198,7 +197,7 @@ gx clean
 | **`gx stage`**  | Stage changes with sensitive file guardrails and preview (`gx add`)  | [docs/commands/stage.md](docs/commands/stage.md)   |
 | **`gx save`**   | Preview changes, block sensitive files, and commit                   | [docs/commands/save.md](docs/commands/save.md)     |
 | **`gx ship`**   | Push branch with lease, enforce branch protection, and print PR link | [docs/commands/ship.md](docs/commands/ship.md)     |
-| **`gx status`** | Synthesized structured human-readable repository snapshot             | [docs/commands/status.md](docs/commands/status.md) |
+| **`gx status`** | Synthesized structured human-readable repository snapshot            | [docs/commands/status.md](docs/commands/status.md) |
 | **`gx clean`**  | Prune merged local and remote branches safely                        | [docs/commands/clean.md](docs/commands/clean.md)   |
 | **`gx config`** | Inspect and update configuration settings                            | [docs/commands/config.md](docs/commands/config.md) |
 
