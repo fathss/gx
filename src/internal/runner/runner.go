@@ -208,10 +208,11 @@ func (r *Runner) runCommand(cmd *exec.Cmd, args []string) error {
 
 	cmd.Stdin = os.Stdin
 
-	// Commands like 'commit' produce commit summaries that must be visible on stdout
-	isCommit := len(args) > 0 && args[0] == "commit"
-	if isCommit {
+	// When committing via an editor (no -m flag), git needs direct terminal I/O
+	isEditorCommit := len(args) > 0 && args[0] == "commit" && !hasFlag(args, "-m")
+	if isEditorCommit {
 		r.StopSpinner()
+		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		var stderrBuffer bytes.Buffer
 		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuffer)
@@ -274,4 +275,13 @@ func (r *Runner) CombinedOutput(args ...string) (string, error) {
 		return trimmed, newCommandError(args, err, trimmed)
 	}
 	return trimmed, nil
+}
+
+func hasFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
 }

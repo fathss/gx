@@ -136,3 +136,24 @@ func Cross() string {
 func WarningSymbol() string {
 	return Warning("⚠")
 }
+
+// StatusBadge returns a colored status letter following Git conventions.
+// M = Warning (yellow), A/U = Success (green), D/C = Danger (red), R = White.
+func StatusBadge(letter string) string {
+	switch letter {
+	case "M":
+		return Warning("M")
+	case "A":
+		return Success("A")
+	case "D":
+		return Danger("D")
+	case "U":
+		return Success("U")
+	case "R":
+		return White("R")
+	case "C":
+		return Danger("C")
+	default:
+		return letter
+	}
+}

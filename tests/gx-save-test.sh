@@ -416,8 +416,8 @@ test_16_prestaged_files() {
     # Then modify another file (unstaged)
     echo "unstaged change" >> readme.md
 
-    # gx save should include both — confirm the partial-staging warning
-    run_gx_stdin "y" save -m "includes prestaged"
+    # gx save -a should include both without prompt
+    run_gx save -a -m "includes prestaged"
 
     assert_exit_code "exits 0" 0
     assert_clean "working tree clean"

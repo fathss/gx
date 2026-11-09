@@ -238,9 +238,9 @@ test_08_staged_grouped() {
     run_gx status
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "new file label" "new file:"
-    assert_output_contains "modified label" "modified:"
-    assert_output_contains "deleted label" "deleted:"
+    assert_output_contains "new file badge" "A  newfile.txt"
+    assert_output_contains "modified badge" "M  readme.md"
+    assert_output_contains "deleted badge" "D  subdir/to-delete.txt"
 }
 
 # ======================================================================
@@ -261,8 +261,7 @@ test_09_untracked_files() {
     run_gx status
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "untracked section" "Untracked:"
-    assert_output_contains "untracked file" "notes.md"
+    assert_output_contains "untracked file" "U  notes.md"
 }
 
 # ======================================================================

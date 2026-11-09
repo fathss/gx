@@ -9,6 +9,7 @@ import (
 	"github.com/fathss/gx/internal/git"
 	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
+	"github.com/fathss/gx/internal/ui"
 )
 
 // Status prints a human-readable snapshot of the repository state.
@@ -66,7 +67,8 @@ func Status(run runner.Executor, cfg *config.Config) error {
 	if len(ps.ConflictedFiles) > 0 {
 		conflictedLines := []string{"Conflicted:"}
 		for _, f := range ps.ConflictedFiles {
-			conflictedLines = append(conflictedLines, fmt.Sprintf("  both modified: %s", f))
+			badge := ui.StatusBadge("C")
+			conflictedLines = append(conflictedLines, fmt.Sprintf("  %s  both modified: %s", badge, f))
 		}
 		sections = append(sections, strings.Join(conflictedLines, "\n"))
 	}
@@ -82,16 +84,16 @@ func Status(run runner.Executor, cfg *config.Config) error {
 			if !ok || len(files) == 0 {
 				continue
 			}
-			label := git.FormatStagedLabel(letter)
+			badge := ui.StatusBadge(letter)
 			for _, f := range files {
 				statStr := ""
 				if stat, ok := stagedStats[f]; ok {
 					statStr = git.FormatDiffStat(stat)
 				}
 				if statStr != "" {
-					stagedLines = append(stagedLines, fmt.Sprintf("  %s:  %s %s", label, f, statStr))
+					stagedLines = append(stagedLines, fmt.Sprintf("  %s  %s %s", badge, f, statStr))
 				} else {
-					stagedLines = append(stagedLines, fmt.Sprintf("  %s:  %s", label, f))
+					stagedLines = append(stagedLines, fmt.Sprintf("  %s  %s", badge, f))
 				}
 			}
 		}
@@ -100,32 +102,28 @@ func Status(run runner.Executor, cfg *config.Config) error {
 
 	// Unstaged section (only when either unstaged or untracked has content)
 	if len(ps.UnstagedFiles) > 0 || len(ps.UntrackedFiles) > 0 {
-		unstagedLines := []string{}
+		unstagedLines := []string{"Unstaged:"}
 
-		if len(ps.UnstagedFiles) > 0 {
-			unstagedLines = append(unstagedLines, "Unstaged:")
-			for _, f := range ps.UnstagedFiles {
-				statStr := ""
-				if stat, ok := unstagedStats[f]; ok {
-					statStr = git.FormatDiffStat(stat)
-				}
-				if statStr != "" {
-					unstagedLines = append(unstagedLines, fmt.Sprintf("  modified:  %s %s", f, statStr))
-				} else {
-					unstagedLines = append(unstagedLines, fmt.Sprintf("  modified:  %s", f))
-				}
+		for _, f := range ps.UnstagedFiles {
+			letter := "M"
+			if st, ok := ps.UnstagedByStatus[f]; ok {
+				letter = st
+			}
+			badge := ui.StatusBadge(letter)
+			statStr := ""
+			if stat, ok := unstagedStats[f]; ok {
+				statStr = git.FormatDiffStat(stat)
+			}
+			if statStr != "" {
+				unstagedLines = append(unstagedLines, fmt.Sprintf("  %s  %s %s", badge, f, statStr))
+			} else {
+				unstagedLines = append(unstagedLines, fmt.Sprintf("  %s  %s", badge, f))
 			}
 		}
 
-		if len(ps.UntrackedFiles) > 0 {
-			if len(unstagedLines) > 0 {
-				// Separate sub-groups with a blank line within the section
-				unstagedLines = append(unstagedLines, "")
-			}
-			unstagedLines = append(unstagedLines, "Untracked:")
-			for _, f := range ps.UntrackedFiles {
-				unstagedLines = append(unstagedLines, fmt.Sprintf("  %s", f))
-			}
+		for _, f := range ps.UntrackedFiles {
+			badge := ui.StatusBadge("U")
+			unstagedLines = append(unstagedLines, fmt.Sprintf("  %s  %s", badge, f))
 		}
 
 		sections = append(sections, strings.Join(unstagedLines, "\n"))

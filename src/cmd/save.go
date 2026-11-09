@@ -12,6 +12,7 @@ import (
 
 var (
 	saveMsg            string
+	saveAll            bool
 	savePatch          bool
 	saveAllowSensitive bool
 	saveAllowEmpty     bool
@@ -57,13 +58,22 @@ Examples:
 			return err
 		}
 
-		return workflow.Save(run, cfg, args, saveMsg, savePatch, saveAllowSensitive, saveAllowEmpty, saveExclude)
+		return workflow.Save(run, cfg, workflow.SaveOptions{
+			Files:           args,
+			Message:         saveMsg,
+			All:             saveAll,
+			Patch:           savePatch,
+			AllowSensitive:  saveAllowSensitive,
+			AllowEmpty:      saveAllowEmpty,
+			ExcludePatterns: saveExclude,
+		})
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(saveCmd)
 	saveCmd.Flags().StringVarP(&saveMsg, "message", "m", "", "commit message (skip editor)")
+	saveCmd.Flags().BoolVarP(&saveAll, "all", "a", false, "stage all modified tracked files before committing")
 	saveCmd.Flags().BoolVar(&savePatch, "patch", false, "interactively select hunks to stage")
 	saveCmd.Flags().BoolVar(&saveAllowSensitive, "allow-sensitive", false, "override sensitive-pattern blocking")
 	saveCmd.Flags().BoolVar(&saveAllowEmpty, "allow-empty", false, "allow committing with nothing staged")
