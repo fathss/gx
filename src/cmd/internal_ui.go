@@ -133,6 +133,66 @@ var internalUICmd = &cobra.Command{
 				return fmt.Errorf("unknown spinner action: %s", action)
 			}
 
+		case "runner":
+			if len(args) < 2 {
+				return fmt.Errorf("usage: gx __ui runner <success|info|warn|run|progress> [args...]")
+			}
+			action := args[1]
+			switch action {
+			case "success":
+				msg := "Operation completed"
+				if len(args) >= 3 {
+					msg = args[2]
+				}
+				run.Success(msg)
+				return nil
+
+			case "info":
+				msg := "Informational notice"
+				if len(args) >= 3 {
+					msg = args[2]
+				}
+				run.Info(msg)
+				return nil
+
+			case "warn":
+				msg := "Warning condition"
+				hint := ""
+				if len(args) >= 3 {
+					msg = args[2]
+				}
+				if len(args) >= 4 {
+					hint = args[3]
+				}
+				run.Warnf(msg, hint)
+				return nil
+
+			case "state":
+				msg := "Processing"
+				if len(args) >= 3 {
+					msg = args[2]
+				}
+				run.State(msg)
+				return nil
+
+			case "run":
+				gitArgs := args[2:]
+				return run.Run(gitArgs...)
+
+			case "progress":
+				msg := "Working"
+				if len(args) >= 3 {
+					msg = args[2]
+				}
+				run.StartProgress(msg)
+				time.Sleep(20 * time.Millisecond)
+				run.EndProgress(true, msg, "")
+				return nil
+
+			default:
+				return fmt.Errorf("unknown runner action: %s", action)
+			}
+
 		default:
 			return fmt.Errorf("unknown command: %s", args[0])
 		}

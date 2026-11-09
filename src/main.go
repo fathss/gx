@@ -8,6 +8,7 @@ import (
 
 	"github.com/fathss/gx/cmd"
 	"github.com/fathss/gx/internal/cli"
+	"github.com/fathss/gx/internal/ui"
 )
 
 func main() {
@@ -21,7 +22,7 @@ func printError(err error) {
 
 	var cliErr *cli.Error
 	if errors.As(err, &cliErr) {
-		fmt.Fprintf(os.Stderr, "✗ %s\n", cliErr.Message)
+		fmt.Fprintf(os.Stderr, "%s\n", ui.Danger(cliErr.Message))
 
 		if cliErr.Hint != "" {
 			for _, line := range strings.Split(cliErr.Hint, "\n") {
@@ -32,5 +33,5 @@ func printError(err error) {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "✗ %v\n", err)
+	fmt.Fprintf(os.Stderr, "%s\n", ui.Danger(err.Error()))
 }

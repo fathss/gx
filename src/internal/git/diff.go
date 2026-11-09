@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fathss/gx/internal/runner"
+	"github.com/fathss/gx/internal/ui"
 )
 
 // FileDiffStat represents line additions and deletions for a single file.
@@ -117,19 +118,19 @@ func parseNumstatPath(raw string) string {
 	return raw
 }
 
-// FormatDiffStat formats a FileDiffStat as a human-readable string like "(+10, -2)".
+// FormatDiffStat formats a FileDiffStat as a human-readable string like "(+10 | -2)".
 func FormatDiffStat(stat FileDiffStat) string {
 	if stat.Binary {
 		return "(binary)"
 	}
 	if stat.Insertions > 0 && stat.Deletions > 0 {
-		return fmt.Sprintf("(+%d, -%d)", stat.Insertions, stat.Deletions)
+		return fmt.Sprintf("(%s | %s)", ui.Success(fmt.Sprintf("+%d", stat.Insertions)), ui.Danger(fmt.Sprintf("-%d", stat.Deletions)))
 	}
 	if stat.Insertions > 0 {
-		return fmt.Sprintf("(+%d)", stat.Insertions)
+		return fmt.Sprintf("(%s)", ui.Success(fmt.Sprintf("+%d", stat.Insertions)))
 	}
 	if stat.Deletions > 0 {
-		return fmt.Sprintf("(-%d)", stat.Deletions)
+		return fmt.Sprintf("(%s)", ui.Danger(fmt.Sprintf("-%d", stat.Deletions)))
 	}
 	return ""
 }

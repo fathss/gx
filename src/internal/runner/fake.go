@@ -19,8 +19,11 @@ type Fake struct {
 	CombinedResults map[string]OutputResult
 	RunErr          error
 	OutputErr       error
-	Warnings        []string
-	Calls           [][]string
+	Warnings         []string
+	Successes        []string
+	Infos            []string
+	ProgressMessages []string
+	Calls            [][]string
 }
 
 var _ Executor = (*Fake)(nil)
@@ -64,4 +67,31 @@ func (f *Fake) Warn(msg string) {
 
 func (f *Fake) Warnf(msg, hint string) {
 	f.Warnings = append(f.Warnings, msg)
+}
+
+func (f *Fake) Success(msg string) {
+	f.Successes = append(f.Successes, msg)
+}
+
+func (f *Fake) Info(msg string) {
+	f.Infos = append(f.Infos, msg)
+}
+
+func (f *Fake) State(msg string) {
+	f.Infos = append(f.Infos, msg)
+	f.ProgressMessages = append(f.ProgressMessages, msg)
+}
+
+func (f *Fake) StopSpinner() {}
+
+func (f *Fake) StartProgress(msg string) {
+	f.State(msg)
+}
+
+func (f *Fake) UpdateProgress(msg string) {
+	f.State(msg)
+}
+
+func (f *Fake) EndProgress(success bool, msg, hint string) {
+	f.ProgressMessages = append(f.ProgressMessages, msg)
 }

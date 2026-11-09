@@ -21,6 +21,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	prompts.autoYes = yes
 
 	// 1. Fetch from remote so merged decision reflects current remote state.
+	run.State(fmt.Sprintf("Fetching %s...", cfg.Remote))
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
 			Message: fmt.Sprintf("Failed to fetch from %q.", cfg.Remote),
@@ -70,6 +71,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	//    Local scope first (local branches + remote-tracking refs), then the
 	//    remote scope when --remote was requested. Every prompt defaults to No,
 	//    and --yes answers both with yes without asking.
+	run.StopSpinner()
 	var doLocalDelete bool
 	totalLocal := len(filteredLocal) + len(filteredRemoteTracking)
 	if totalLocal > 0 {
@@ -119,6 +121,17 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	pruned := 0
 	var firstErr error
 
+	toPrune := 0
+	if doLocalDelete {
+		toPrune += len(filteredLocal) + len(filteredRemoteTracking)
+	}
+	if doRemoteDelete {
+		toPrune += len(remoteToDelete)
+	}
+	if toPrune > 0 {
+		run.State(fmt.Sprintf("Pruning %d branches...", toPrune))
+	}
+
 	if doLocalDelete {
 		for _, br := range filteredLocal {
 			if err := git.DeleteLocalBranch(run, br); err != nil {
@@ -161,13 +174,13 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 
 	// 7. Summary line.
 	if firstErr != nil {
-		fmt.Printf("Pruned %d branches — their commits remain on %s.\n", pruned, cfg.DefaultBranch)
+		run.Info(fmt.Sprintf("Pruned %d branches — their commits remain on %s.", pruned, cfg.DefaultBranch))
 		return &cli.Error{
 			Message: "Failed to prune some branches.",
 			Hint:    fmt.Sprintf("Check the error above and try again. Pruned branches' commits remain on %s.", cfg.DefaultBranch),
 		}
 	}
-	fmt.Printf("Pruned %d branches.\n", pruned)
+	run.Success(fmt.Sprintf("Pruned %d branches.", pruned))
 	return nil
 }
 

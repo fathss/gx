@@ -57,14 +57,14 @@ func Save(run runner.Executor, cfg *config.Config, files []string, msg string, p
 		var filteredModified, filteredUntracked []string
 		for _, f := range treeModified {
 			if submodules[f] {
-				fmt.Printf("  [submodule] %s (skipped — use git add manually)\n", f)
+				run.Info(fmt.Sprintf("  [submodule] %s (skipped — use git add manually)", f))
 			} else {
 				filteredModified = append(filteredModified, f)
 			}
 		}
 		for _, f := range treeUntracked {
 			if submodules[f] {
-				fmt.Printf("  [submodule] %s (skipped — use git add manually)\n", f)
+				run.Info(fmt.Sprintf("  [submodule] %s (skipped — use git add manually)", f))
 			} else {
 				filteredUntracked = append(filteredUntracked, f)
 			}

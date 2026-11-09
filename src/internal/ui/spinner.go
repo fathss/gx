@@ -166,7 +166,11 @@ func (s *Spinner) UpdateMessage(msg string) {
 // renderLine renders the current frame and message. Must be called with s.mu held.
 func (s *Spinner) renderLine() {
 	frame := s.frames[s.frameIdx]
-	fmt.Fprintf(s.out, "%s%s %s", ClearLineCode, frame, s.message)
+	if s.message == "" {
+		fmt.Fprintf(s.out, "%s%s", ClearLineCode, frame)
+	} else {
+		fmt.Fprintf(s.out, "%s%s %s", ClearLineCode, frame, s.message)
+	}
 }
 
 // Stop stops the spinner animation, clears the line, and restores the terminal cursor.
@@ -187,9 +191,9 @@ func (s *Spinner) StopSuccess(msg string) {
 			text = s.message
 		}
 		if s.isTTY {
-			fmt.Fprintf(s.out, "%s%s%s %s\n", ClearLineCode, ShowCursorCode, Checkmark(), text)
+			fmt.Fprintf(s.out, "%s%s%s %s\n", ClearLineCode, ShowCursorCode, text, Checkmark())
 		} else {
-			fmt.Fprintf(s.out, "%s %s\n", Checkmark(), text)
+			fmt.Fprintf(s.out, "%s %s\n", text, Checkmark())
 		}
 	})
 }
@@ -209,9 +213,9 @@ func (s *Spinner) StopFail(msg, hint string) {
 			text = s.message
 		}
 		if s.isTTY {
-			fmt.Fprintf(s.out, "%s%s%s %s\n", ClearLineCode, ShowCursorCode, Cross(), text)
+			fmt.Fprintf(s.out, "%s%s%s %s\n", ClearLineCode, ShowCursorCode, text, Cross())
 		} else {
-			fmt.Fprintf(s.out, "%s %s\n", Cross(), text)
+			fmt.Fprintf(s.out, "%s %s\n", text, Cross())
 		}
 
 		if hint != "" {

@@ -21,6 +21,7 @@ type syncGit interface {
 	MarkState() error
 	ClearState() error
 	Warnf(msg, hint string)
+	State(msg string)
 }
 
 // prodSyncGit adapts the git package and runner to syncGit.
@@ -57,6 +58,8 @@ func (adapter *prodSyncGit) ClearState() error { return git.ClearGXSyncState(ada
 
 func (adapter *prodSyncGit) Warnf(msg, hint string) { adapter.run.Warnf(msg, hint) }
 
+func (adapter *prodSyncGit) State(msg string) { adapter.run.State(msg) }
+
 // settle is how a sync session closes (see CONTEXT.md).
 type settle int
 
@@ -87,7 +90,7 @@ func begin(sessionGit syncGit, branch string) (*syncSession, error) {
 		return session, nil
 	}
 	label := fmt.Sprintf("%s%s/%d", git.SyncStashPrefix, branch, time.Now().Unix())
-	fmt.Println("Stashing local changes...")
+	sessionGit.State("Stashing local changes...")
 	if err := sessionGit.StashPush(label); err != nil {
 		hint := "Commit or discard your changes manually."
 		if git.IsIndexLocked(err) {
@@ -184,7 +187,7 @@ func (session *syncSession) clearState() {
 // pop announces the restore and pops the gx-sync/ stash. A pop conflict
 // returns the standard settle error — the single place that message exists.
 func (session *syncSession) pop() error {
-	fmt.Println("Restoring stashed changes...")
+	session.git.State("Restoring stashed changes...")
 	if err := session.git.StashPop(); err != nil {
 		return &cli.Error{
 			Message: "Stash pop failed — conflicts detected.",

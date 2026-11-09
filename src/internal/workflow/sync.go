@@ -65,7 +65,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 
 		case q4GXRebase:
 			// Q4: gx-orchestrated rebase — abort, then settle
-			fmt.Println("Aborting rebase...")
+			run.Info("Aborting rebase...")
 			return abortWithStash(run, sessionGit, git.RebaseAbort)
 
 		case q5ManualMerge:
@@ -77,7 +77,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 
 		case q6GXMerge:
 			// Q6: gx-orchestrated merge — abort, then settle
-			fmt.Println("Aborting merge...")
+			run.Info("Aborting merge...")
 			return abortWithStash(run, sessionGit, git.MergeAbort)
 
 		default:
@@ -202,13 +202,14 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 
 	// 5–8. Act phase. Every exit settles through the session: an error
 	// restores the stash, a conflict pause keeps it, success commits it.
-	return session.run(func() (settle, error) {
+	err = session.run(func() (settle, error) {
 		if !git.RemoteExists(run, cfg.Remote) {
 			return settleRestore, &cli.Error{
 				Message: fmt.Sprintf("Remote '%s' not found.", cfg.Remote),
 				Hint:    "Run `git remote -v` to list available remotes, then `gx config remote <name>` to update.",
 			}
 		}
+		run.State(fmt.Sprintf("Fetching %s...", cfg.Remote))
 		if err := git.Fetch(run, cfg.Remote); err != nil {
 			return settleRestore, &cli.Error{
 				Message: "Failed to fetch remote.",
@@ -234,6 +235,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 					Hint:    "Has it been deleted? Check the remote repository.",
 				}
 			}
+			run.State(fmt.Sprintf("Fast-forwarding %s...", cfg.DefaultBranch))
 			if err := git.FastForward(run, cfg.Remote, cfg.DefaultBranch); err != nil {
 				return settleRestore, &cli.Error{
 					Message: fmt.Sprintf("Local branch '%s' has diverged from '%s'.", cfg.DefaultBranch, baseRef),
@@ -250,6 +252,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 				Hint:    fmt.Sprintf("Create it with: git checkout -b %s %s/%s\nThen run gx sync again.", cfg.DefaultBranch, cfg.Remote, cfg.DefaultBranch),
 			}
 		}
+		run.State(fmt.Sprintf("Fast-forwarding %s...", cfg.DefaultBranch))
 		if err := git.Checkout(run, cfg.DefaultBranch); err != nil {
 			return settleRestore, &cli.Error{
 				Message: fmt.Sprintf("Failed to checkout %s.", cfg.DefaultBranch),
@@ -307,6 +310,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 		}
 		switch strategy {
 		case "merge":
+			run.State(fmt.Sprintf("Merging %s...", cfg.DefaultBranch))
 			if err := git.Merge(run, cfg.DefaultBranch); err != nil {
 				if git.IsMergeInProgress(run) {
 					// Leave merge state, preserve stash — user resolves and re-runs
@@ -332,6 +336,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 				}
 			}
 		default:
+			run.State(fmt.Sprintf("Rebasing onto %s...", cfg.DefaultBranch))
 			if err := git.Rebase(run, cfg.DefaultBranch); err != nil {
 				if git.IsRebaseInProgress(run) {
 					// Leave the rebase in progress — user resolves and re-runs gx sync.
@@ -365,6 +370,8 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 
 		return settleCommit, nil
 	})
+	run.StopSpinner()
+	return err
 }
 
 // autoContinueSync continues an in-progress rebase. When a gx stash is present
@@ -372,9 +379,9 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 // rebase completes. Only called for gx-orchestrated rebases (Q4).
 func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
-		fmt.Printf("Continuing rebase — applying %s...\n", info)
+		run.Info(fmt.Sprintf("Continuing rebase — applying %s...", info))
 	} else {
-		fmt.Println("Continuing rebase...")
+		run.Info("Continuing rebase...")
 	}
 
 	if err := git.RebaseContinue(run); err != nil {
@@ -420,7 +427,7 @@ func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
 // autoContinueMergeSync continues a paused merge. Behaves like autoContinueSync
 // but for merges: runs git merge --continue, then commits the resumed session.
 func autoContinueMergeSync(run runner.Executor, sessionGit syncGit) error {
-	fmt.Println("Continuing merge...")
+	run.Info("Continuing merge...")
 
 	if err := git.MergeContinue(run); err != nil {
 		if git.IsMergeInProgress(run) {
@@ -469,9 +476,9 @@ func abortWithStash(run runner.Executor, sessionGit syncGit, abortFn func(runner
 // paused (stash kept). When the rebase finished, the session commits.
 func autoSkipSync(run runner.Executor, sessionGit syncGit) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
-		fmt.Printf("Skipping commit %s...\n", info)
+		run.Info(fmt.Sprintf("Skipping commit %s...", info))
 	} else {
-		fmt.Println("Skipping current commit...")
+		run.Info("Skipping current commit...")
 	}
 
 	if err := git.RebaseSkip(run); err != nil {
@@ -489,14 +496,14 @@ func autoSkipSync(run runner.Executor, sessionGit syncGit) error {
 	// Check if more commits remain
 	if git.IsRebaseInProgress(run) {
 		if info := git.CurrentRebasePatchInfo(run); info != "" {
-			fmt.Printf("Rebase continuing — next commit: %s.\n", info)
+			run.Info(fmt.Sprintf("Rebase continuing — next commit: %s.", info))
 		} else {
-			fmt.Println("Rebase continuing.")
+			run.Info("Rebase continuing.")
 		}
 		return nil
 	}
 
 	// Rebase finished after skip — commit the resumed session
-	fmt.Println("Rebase completed.")
+	run.Success("Rebase completed.")
 	return resume(sessionGit).settle(settleCommit)
 }

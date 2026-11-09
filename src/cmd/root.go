@@ -8,6 +8,7 @@ import (
 
 	"github.com/fathss/gx/internal/pager"
 	"github.com/fathss/gx/internal/runner"
+	"github.com/fathss/gx/internal/ui"
 	"github.com/fathss/gx/internal/workflow"
 
 	"github.com/spf13/cobra"
@@ -79,8 +80,14 @@ func init() {
 
 func initRunner() {
 	run = runner.New(verbose)
+	run.SuccessFn = func(msg string) {
+		fmt.Println(msg)
+	}
+	run.InfoFn = func(msg string) {
+		fmt.Println(ui.Dim(msg))
+	}
 	run.WarnFn = func(msg, hint string) {
-		fmt.Fprintf(os.Stderr, "⚠ %s\n", msg)
+		fmt.Fprintf(os.Stderr, "%s\n", ui.Warning(msg))
 		if hint != "" {
 			for _, line := range strings.Split(hint, "\n") {
 				fmt.Fprintf(os.Stderr, "  %s\n", line)
