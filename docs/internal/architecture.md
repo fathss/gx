@@ -89,6 +89,18 @@ Each layer has a specific job and **must not** reach across boundaries.
 - Consumed by `internal/workflow/ship.go` after a successful push; forge errors never fail the ship flow since the push already completed
 - See [Git Domains Reference](git-domains.md)
 
+### `internal/ui/`
+
+- Terminal styling, ANSI color utilities (`White`, `Dim`, `Success`, `Danger`, `Warning`, `StatusBadge`), and glyph helpers (`Checkmark`, `Cross`, `WarningSymbol`)
+- Terminal spinner lifecycle management (`Spinner`, `NewSpinner`, `Start`, `Tick`, `StopSuccess`, `StopFail`)
+- Auto-detects TTY and respects `NO_COLOR` environment variable and `TERM="dumb"`
+
+### `internal/pager/`
+
+- Paged output delivery via `pager.Print` for long outputs (previews, diffstats, clean candidate lists)
+- Automatically falls back to standard print when stdout is not a TTY or height fits the terminal
+- Respects the global `--no-pager` flag and `$PAGER` environment variable (defaults to `less -FIRX`)
+
 ---
 
 ## Error handling flow
@@ -135,17 +147,23 @@ Built-in commands (`help`, `completion`) are annotated dynamically in `sync.Once
 
 ## Runner methods
 
-| Method                                         | Visibility                    | Use case                                                             |
-| ---------------------------------------------- | ----------------------------- | -------------------------------------------------------------------- |
-| `Run(args...) error`                           | Always prints `▸ git <args>`  | User-visible git operations (fetch, rebase, commit, etc.)            |
-| `RunWithEnv(env, args...) error`               | Always prints header          | Git operations needing extra env vars (`GIT_EDITOR=true`)            |
-| `Output(args...) (string, error)`              | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.) |
-| `CombinedOutput(args...) (string, error)`      | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr                          |
-| `Warn(msg string)` / `Warnf(msg, hint string)` | Via `WarnFn`                  | Emit a non-fatal warning through the wired handler                   |
+| Method                                                  | Visibility                    | Use case                                                                |
+| ------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `Run(args...) error`                                    | Printed with `--verbose`      | User-visible git operations (fetch, rebase, commit, etc.)               |
+| `RunWithEnv(env, args...) error`                        | Printed with `--verbose`      | Git operations needing extra env vars (`GIT_EDITOR=true`)               |
+| `Output(args...) (string, error)`                       | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.)    |
+| `CombinedOutput(args...) (string, error)`               | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr                             |
+| `Warn(msg string)` / `Warnf(msg, hint string)`          | Via `WarnFn`                  | Emit a non-fatal warning through the wired handler                      |
+| `Success(msg string)`                                   | Via `SuccessFn`               | Emit a non-fatal success message through the wired handler              |
+| `Info(msg string)`                                      | Via `InfoFn`                  | Emit a non-fatal informational message in dim styling                   |
+| `State(msg string)`                                     | Terminal stdout / spinner     | Announce workflow state and maintain active spinner in interactive mode |
+| `StopSpinner()`                                         | Terminal stdout               | Stop and clear the active spinner                                       |
+| `StartProgress(msg string)` / `UpdateProgress(...)`     | Terminal stdout               | Manage progress state during multi-step operations                      |
+| `EndProgress(success bool, msg, hint string)`           | Terminal stdout               | Complete progress indicator with success or failure                     |
 
-The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired by `cmd/root.go` `initRunner` to print a `⚠` warning glyph plus hint lines to stderr.
+The `Runner` exposes handler hooks (`WarnFn`, `SuccessFn`, `InfoFn`) wired by `cmd/root.go` `initRunner`.
 
-`--verbose` / `-v` flag prints the plumbing commands (`Output()`/`CombinedOutput()`) that are hidden by default. The `▸ git <args>` headers from `Run()` / `RunWithEnv()` are always-on.
+`--verbose` / `-v` flag prints every underlying command header (`▸ git <args>`). In normal non-verbose mode, commands run with streamlined terminal feedback (dim state transitions and spinners).
 
 ---
 
@@ -157,12 +175,13 @@ The `Runner` exposes a `WarnFn` (type `WarnFunc func(msg, hint string)`) wired b
 | `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                                                                      |
 | `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`                                                 |
 | `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the ownership marker (`syncGit` seam + `prodSyncGit` adapter)                                            |
-| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspectForSync()`, `requireNoInProgress()` guard shared by save/ship; marker is authoritative, stash is the legacy fallback |
+| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspectForSync()`, `requireNoInProgress()` guard shared by save/ship/stage; marker is authoritative, stash is legacy fallback |
 | `internal/workflow/synclock.go`    | Per-worktree sync lock — `acquireSyncLock()`, stale-PID recovery; `synclock_unix.go` probes liveness, `synclock_windows.go` ages locks out                                              |
 | `internal/workflow/prompt.go`      | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr                                         |
-| `internal/workflow/save.go`        | `Save()` — categorized preview, sensitive check, stage, commit                                                                                                                          |
+| `internal/workflow/stage.go`       | `Stage()` + `StageOptions` — categorized preview with status badges, sensitive check, exclude filtering, untracked prompt, hunk staging, staged summary                                  |
+| `internal/workflow/save.go`        | `Save()` + `SaveOptions` — support pre-staged commits, working tree scan, sensitive check, stage, commit summary card                                                                    |
 | `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                                                                         |
-| `internal/workflow/status.go`      | `Status()` — assemble six-section snapshot (upstream = configured remote via `CheckDivergence`)                                                                                         |
+| `internal/workflow/status.go`      | `Status()` — assemble structured snapshot with status badges (upstream = configured remote via `CheckDivergence`)                                                                       |
 | `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                                                                      |
 
 ---

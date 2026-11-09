@@ -8,6 +8,7 @@ User-facing reference for each gx command:
 
 - [gx init](commands/init.md) — Initialize `.gx/config` for a repository with auto-detection
 - [gx sync](commands/sync.md) — Sync feature branch with base branch (stash, fetch, rebase/merge, restore)
+- [gx stage](commands/stage.md) — Stage modified tracked and untracked files with preview and sensitive pattern guardrails
 - [gx save](commands/save.md) — Stage changes and commit with sensitive pattern and empty commit guards
 - [gx ship](commands/ship.md) — Push feature branch and output PR creation URL
 - [gx status](commands/status.md) — Human-readable repository state snapshot
