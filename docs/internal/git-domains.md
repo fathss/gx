@@ -34,6 +34,10 @@ The `internal/git` package provides thin, testable Go wrappers around git comman
   Runs `git checkout <branch>`. Fails if uncommitted changes conflict.
 - **`LocalBranchExists(run runner.Executor, branch string) bool`**  
   Runs `git rev-parse --verify refs/heads/<branch>`.
+- **`IsAncestor(run runner.Executor, ancestor, descendant string) bool`**  
+  Runs `git merge-base --is-ancestor <ancestor> <descendant>`. Returns `true` if `ancestor` is an ancestor of `descendant`.
+- **`HasUnappliedCommits(run runner.Executor, upstream, candidate string) (bool, error)`**  
+  Runs `git cherry <upstream> <candidate>`. Returns `true` if `candidate` has any commits (lines starting with `+`) not yet applied to `upstream` (patch-ID comparison).
 - **`MergedBranches(run runner.Executor, base string) ([]string, error)`**  
   Runs `git branch --merged <base>`. Strips the `* ` (current) and `+ ` (worktree) markers and returns local branch names. Worktree policy is applied by the workflow, not hidden in the parser.
 - **`WorktreeBranches(run runner.Executor) (map[string]bool, error)`**  

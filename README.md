@@ -170,7 +170,7 @@ gx init
 # 2. Check current repository snapshot
 gx status
 
-# 3. Pull latest base branch updates into your feature branch
+# 3. Reconcile with remote feature branch and pull latest base branch updates
 gx sync
 
 # 4. Stage changes with sensitive file checks (optional)
@@ -193,12 +193,12 @@ gx clean
 | Command         | Description                                                          | Documentation                                      |
 | --------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
 | **`gx init`**   | Auto-detect remote/default branch and seed `.gx/config`              | [docs/commands/init.md](docs/commands/init.md)     |
-| **`gx sync`**   | Stash, fetch, rebase/merge base branch, and restore stash cleanly    | [docs/commands/sync.md](docs/commands/sync.md)     |
+| **`gx sync`**   | Stash, fetch, sync with remote feature and base branch, and restore  | [docs/commands/sync.md](docs/commands/sync.md)     |
 | **`gx stage`**  | Stage changes with sensitive file guardrails and preview (`gx add`)  | [docs/commands/stage.md](docs/commands/stage.md)   |
 | **`gx save`**   | Preview changes, block sensitive files, and commit                   | [docs/commands/save.md](docs/commands/save.md)     |
 | **`gx ship`**   | Push branch with lease, enforce branch protection, and print PR link | [docs/commands/ship.md](docs/commands/ship.md)     |
 | **`gx status`** | Synthesized structured human-readable repository snapshot            | [docs/commands/status.md](docs/commands/status.md) |
-| **`gx clean`**  | Prune merged local and remote branches safely                        | [docs/commands/clean.md](docs/commands/clean.md)   |
+| **`gx clean`**  | Prune merged local branches (and remote branches with `--remote`)    | [docs/commands/clean.md](docs/commands/clean.md)   |
 | **`gx config`** | Inspect and update configuration settings                            | [docs/commands/config.md](docs/commands/config.md) |
 
 ---
