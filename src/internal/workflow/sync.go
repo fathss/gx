@@ -406,9 +406,17 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 				}
 			} else if div.Behind > 0 && div.Ahead > 0 {
 				remoteRef := git.Qualify(cfg.Remote, current)
-				outcome, err := integrate(remoteRef, remoteRef)
-				if err != nil || outcome != settleCommit {
-					return outcome, err
+				unapplied, err := git.HasUnappliedCommits(run, "HEAD", remoteRef)
+				if err != nil {
+					return settleRestore, &cli.Error{
+						Message: "Failed to compare commits with remote branch.",
+					}
+				}
+				if unapplied {
+					outcome, err := integrate(remoteRef, remoteRef)
+					if err != nil || outcome != settleCommit {
+						return outcome, err
+					}
 				}
 			}
 		}
@@ -455,6 +463,11 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 				Message: fmt.Sprintf("Failed to fast-forward %s.", cfg.DefaultBranch),
 				Hint:    "Your local base branch has diverged. Inspect it manually.",
 			}
+		}
+
+		// If the base branch is already an ancestor of current, no rebase/merge is needed
+		if git.IsAncestor(run, cfg.DefaultBranch, current) {
+			return settleCommit, nil
 		}
 
 		return integrate(cfg.DefaultBranch, cfg.DefaultBranch)
