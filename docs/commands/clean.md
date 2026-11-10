@@ -10,9 +10,9 @@ Prune branches that are already merged into the base branch.
 gx clean [--remote] [--yes]
 ```
 
-`gx clean` fetches with `--prune` from the configured remote so merge decisions reflect current remote history and stale remote-tracking refs are removed. It identifies branches fully merged into the base branch (`defaultBranch` in `.gx/config`) and prompts before deleting:
+`gx clean` fetches with `--prune` from the configured remote so merge decisions reflect current remote history and stale remote-tracking refs whose remote branch was already deleted are removed. It identifies branches fully merged into the base branch (`defaultBranch` in `.gx/config`) and prompts before deleting:
 
-1. **Local branches & remote-tracking refs**: `git branch -d <branch>` and `git branch -d -r <remote>/<branch>`.
+1. **Local branches**: `git branch -d <branch>`.
 2. **Remote branches** (only with `--remote`): `git push <remote> --delete <branch>`.
 
 Protected branches (`main`, `master`, `develop`), the default branch itself, the currently active branch, and branches checked out in any worktree are never deleted. Worktree exclusions are reported as a warning. Deleting a merged branch is safe and never loses commits.
@@ -53,23 +53,20 @@ gx clean
 ```bash
 gx clean --remote
 # ▸ git fetch --prune origin
-# Merged branches eligible for pruning in this clone:
+# Merged branches eligible for pruning:
 #
-# Remote-tracking refs:
+# Local branches:
+#   feature/old-a
+#
+# Remote branches on origin:
 #   origin/feature/old-a
 #   origin/feature/old-b
-# Prune 2 merged branch(es) from this clone? [y/N]: y
-# Remote branches eligible for pruning on origin:
 #
-# Remote branches:
-#   origin/feature/old-a
-#   origin/feature/old-b
-# Delete 2 remote branch(es) on origin? [y/N]: y
-# ▸ git branch -d -r origin/feature/old-a
-# ▸ git branch -d -r origin/feature/old-b
+# Prune 1 local branch(es) and delete 2 remote branch(es) on origin? [y/N]: y
+# ▸ git branch -d feature/old-a
 # ▸ git push origin --delete feature/old-a
 # ▸ git push origin --delete feature/old-b
-# Pruned 4 branches.
+# Pruned 1 local and 2 remote branch(es).
 ```
 
 ### Non-interactive cleanup (CI / automation)

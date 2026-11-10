@@ -12,15 +12,15 @@ import (
 )
 
 // Clean prunes branches merged into the base branch.
-// It always fetches first, then prompts before deleting local branches and
-// remote-tracking refs merged into the relevant base. With remote==true it
-// prompts a second time before deleting remote branches. With yes==true both
-// prompts are skipped and every candidate is deleted.
+// It always fetches first with --prune. Plain clean only prunes local branches
+// from this clone. With remote==true it identifies both local and remote merged
+// branches and prompts to prune them in a single unified prompt.
 func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
-	// --yes is prompter vocabulary: seat it once for both confirmations.
+	// --yes is prompter vocabulary: seat it once for confirmation.
 	prompts.autoYes = yes
 
-	// 1. Fetch from remote so merged decision reflects current remote state.
+	// 1. Fetch from remote with --prune so merged decision reflects current remote state,
+	// and stale remote-tracking refs whose remote branches were already deleted are pruned.
 	run.State(fmt.Sprintf("Fetching %s...", cfg.Remote))
 	if err := git.Fetch(run, cfg.Remote); err != nil {
 		return &cli.Error{
@@ -53,114 +53,104 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	filteredLocal := filterLocalBranches(localCandidates, cfg, current, worktrees)
 	warnSkippedWorktrees(run, localCandidates, cfg, current, worktrees)
 
-	// 3. Remote-tracking candidates: merged into <remote>/<defaultBranch>.
-	remoteCandidates, err := git.MergedRemoteBranches(run, cfg.Remote, cfg.DefaultBranch)
-	if err != nil {
+	// Check that the remote base branch exists.
+	if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
 		return &cli.Error{
 			Message: fmt.Sprintf("Failed to list merged remote-tracking refs against %q/%q.", cfg.Remote, cfg.DefaultBranch),
 			Hint:    "Check that the configured remote and defaultBranch exist.",
 		}
 	}
-	filteredRemoteTracking := filterBranches(remoteCandidates, cfg)
 
-	// 4. Remote deletion candidates mirror the remote-tracking list; both are
-	//    bare branch names below the seam.
-	remoteToDelete := filteredRemoteTracking
+	// 3. Remote candidates (only when --remote requested): merged into <remote>/<defaultBranch>.
+	var remoteToDelete []string
+	if remote {
+		remoteCandidates, err := git.MergedRemoteBranches(run, cfg.Remote, cfg.DefaultBranch)
+		if err != nil {
+			return &cli.Error{
+				Message: fmt.Sprintf("Failed to list merged remote-tracking refs against %q/%q.", cfg.Remote, cfg.DefaultBranch),
+				Hint:    "Check that the configured remote and defaultBranch exist.",
+			}
+		}
+		remoteToDelete = filterBranches(remoteCandidates, cfg)
+	}
 
-	// 5. Confirmations, both collected before any mutation.
-	//    Local scope first (local branches + remote-tracking refs), then the
-	//    remote scope when --remote was requested. Every prompt defaults to No,
-	//    and --yes answers both with yes without asking.
+	totalCandidates := len(filteredLocal) + len(remoteToDelete)
+	if totalCandidates == 0 {
+		run.StopSpinner()
+		run.Success("Pruned 0 branches.")
+		return nil
+	}
+
+	// 4. Confirmation prompt.
 	run.StopSpinner()
-	var doLocalDelete bool
-	totalLocal := len(filteredLocal) + len(filteredRemoteTracking)
-	if totalLocal > 0 {
-		if !yes {
-			var b strings.Builder
-			b.WriteString("Merged branches eligible for pruning in this clone:")
+	if !yes {
+		var b strings.Builder
+		if remote {
+			b.WriteString("Merged branches eligible for pruning:")
 			if len(filteredLocal) > 0 {
 				b.WriteString("\n\nLocal branches:")
 				for _, br := range filteredLocal {
 					b.WriteString(fmt.Sprintf("\n  %s", br))
 				}
 			}
-			if len(filteredRemoteTracking) > 0 {
-				b.WriteString("\n\nRemote-tracking refs:")
-				for _, br := range filteredRemoteTracking {
+			if len(remoteToDelete) > 0 {
+				b.WriteString(fmt.Sprintf("\n\nRemote branches on %s:", cfg.Remote))
+				for _, br := range remoteToDelete {
 					b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
 				}
 			}
-			_ = pager.Print(b.String())
-		}
-		confirmed, err := prompts.Confirm(fmt.Sprintf("Prune %d merged branch(es) from this clone?", totalLocal))
-		if err != nil {
-			return err
-		}
-		doLocalDelete = confirmed
-	}
-
-	var doRemoteDelete bool
-	if remote && len(remoteToDelete) > 0 {
-		if !yes {
-			var b strings.Builder
-			b.WriteString(fmt.Sprintf("Remote branches eligible for pruning on %s:", cfg.Remote))
-			b.WriteString("\n\nRemote branches:")
-			for _, br := range remoteToDelete {
-				b.WriteString(fmt.Sprintf("\n  %s", git.Qualify(cfg.Remote, br)))
+		} else {
+			b.WriteString("Merged branches eligible for pruning in this clone:")
+			b.WriteString("\n\nLocal branches:")
+			for _, br := range filteredLocal {
+				b.WriteString(fmt.Sprintf("\n  %s", br))
 			}
-			_ = pager.Print(b.String())
 		}
-		confirmed, err := prompts.Confirm(fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote))
-		if err != nil {
-			return err
-		}
-		doRemoteDelete = confirmed
+		_ = pager.Print(b.String())
 	}
 
-	// 6. Delete in order: local, remote-tracking, remote.
-	pruned := 0
+	var promptText string
+	switch {
+	case len(filteredLocal) > 0 && len(remoteToDelete) > 0:
+		promptText = fmt.Sprintf("Prune %d local branch(es) and delete %d remote branch(es) on %s?", len(filteredLocal), len(remoteToDelete), cfg.Remote)
+	case len(filteredLocal) > 0:
+		promptText = fmt.Sprintf("Prune %d merged branch(es) from this clone?", len(filteredLocal))
+	default:
+		promptText = fmt.Sprintf("Delete %d remote branch(es) on %s?", len(remoteToDelete), cfg.Remote)
+	}
+
+	confirmed, err := prompts.Confirm(promptText)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		run.Success("Pruned 0 branches.")
+		return nil
+	}
+
+	// 5. Delete in order: local, remote.
+	run.State(fmt.Sprintf("Pruning %d branches...", totalCandidates))
+	prunedLocal := 0
+	prunedRemote := 0
 	var firstErr error
 
-	toPrune := 0
-	if doLocalDelete {
-		toPrune += len(filteredLocal) + len(filteredRemoteTracking)
-	}
-	if doRemoteDelete {
-		toPrune += len(remoteToDelete)
-	}
-	if toPrune > 0 {
-		run.State(fmt.Sprintf("Pruning %d branches...", toPrune))
-	}
-
-	if doLocalDelete {
-		for _, br := range filteredLocal {
-			if err := git.DeleteLocalBranch(run, br); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
+	for _, br := range filteredLocal {
+		if err := git.DeleteLocalBranch(run, br); err != nil {
+			if firstErr == nil {
+				firstErr = err
 			}
-			pruned++
+			continue
 		}
-
-		for _, br := range filteredRemoteTracking {
-			if err := git.DeleteRemoteTrackingBranch(run, cfg.Remote, br); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
-			}
-			pruned++
-		}
+		prunedLocal++
 	}
 
-	if doRemoteDelete {
+	if remote {
 		for _, br := range remoteToDelete {
 			if err := git.DeleteRemoteBranch(run, cfg.Remote, br); err != nil {
 				// Another collaborator may have deleted the branch between our
 				// fetch and our push. The desired end state is already true.
 				if git.IsRemoteRefMissing(err) {
-					pruned++
+					prunedRemote++
 					continue
 				}
 				if firstErr == nil {
@@ -168,19 +158,25 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 				}
 				continue
 			}
-			pruned++
+			prunedRemote++
 		}
 	}
 
-	// 7. Summary line.
+	// 6. Summary line.
+	totalPruned := prunedLocal + prunedRemote
 	if firstErr != nil {
-		run.Info(fmt.Sprintf("Pruned %d branches — their commits remain on %s.", pruned, cfg.DefaultBranch))
+		run.Info(fmt.Sprintf("Pruned %d branches — their commits remain on %s.", totalPruned, cfg.DefaultBranch))
 		return &cli.Error{
 			Message: "Failed to prune some branches.",
 			Hint:    fmt.Sprintf("Check the error above and try again. Pruned branches' commits remain on %s.", cfg.DefaultBranch),
 		}
 	}
-	run.Success(fmt.Sprintf("Pruned %d branches.", pruned))
+
+	if remote && prunedLocal > 0 && prunedRemote > 0 {
+		run.Success(fmt.Sprintf("Pruned %d local and %d remote branch(es).", prunedLocal, prunedRemote))
+	} else {
+		run.Success(fmt.Sprintf("Pruned %d branches.", totalPruned))
+	}
 	return nil
 }
 

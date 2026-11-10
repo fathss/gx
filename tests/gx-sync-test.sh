@@ -967,7 +967,7 @@ test_31_config_remote_bogus() {
 
 test_32_sync_positional_args() {
     echo ""
-    echo "=== Test 32: sync positional args (remote + branch) ==="
+    echo "=== Test 32: sync positional args mismatch guard ==="
     cleanup_tempdir
     setup_tempdir
     setup_base_repo
@@ -975,16 +975,16 @@ test_32_sync_positional_args() {
     cd "$TEST_DIR"
 
     git_checkout feature/test
-    old_head=$(git_head)
 
     run_gx sync origin develop
 
-    assert_exit_code "exits 0" 0
+    assert_exit_code "exits non-zero" 1
+    assert_output_contains "branch mismatch error" "You are currently on \"feature/test\", but specified \"develop\"."
+    assert_output_contains "checkout hint" "git checkout develop"
+    assert_output_contains "sync hint" "gx sync"
     assert_branch "still on feature/test" "feature/test"
     assert_clean "working tree clean"
     assert_no_rebase_in_progress "no rebase lingering"
-    assert_merge_base_equals "develop is ancestor" "develop" "feature/test"
-    assert_head_changed "HEAD changed" "$old_head"
     assert_git_valid "repository intact"
 }
 
@@ -1279,6 +1279,114 @@ test_41_abort_and_continue_exclusive() {
 }
 
 # ======================================================================
+# TEST 42 — sync positional args matching target branch (target-only sync)
+# ======================================================================
+test_42_sync_target_branch_match() {
+    echo ""
+    echo "=== Test 42: sync positional args matching target branch ==="
+    cleanup_tempdir
+    setup_tempdir
+    setup_base_repo
+
+    cd "$TEST_DIR"
+    git_checkout feature/test
+
+    run_gx sync origin feature/test
+
+    assert_exit_code "exits 0" 0
+    assert_branch "still on feature/test" "feature/test"
+    assert_clean "working tree clean"
+    assert_no_rebase_in_progress "no rebase lingering"
+    assert_git_valid "repository intact"
+}
+
+# ======================================================================
+# TEST 43 — target-only sync does not rebase onto base branch
+# ======================================================================
+test_43_target_only_skips_base() {
+    echo ""
+    echo "=== Test 43: target-only sync skips base branch rebase ==="
+    cleanup_tempdir
+    setup_tempdir
+    setup_base_repo
+
+    # Add a commit to remote develop
+    cd "$OTHER_DIR"
+    git_checkout develop
+    echo "develop only content" > develop_only.txt
+    git add develop_only.txt && git_commit -m "develop only commit"
+    git_push origin develop
+
+    # Sync only feature/test
+    cd "$TEST_DIR"
+    git_checkout feature/test
+    run_gx sync origin feature/test
+
+    assert_exit_code "exits 0" 0
+    assert_output_not_contains "no base rebase message" "Rebasing onto develop"
+    assert_file_not_exists "develop only commit not pulled" "develop_only.txt"
+}
+
+# ======================================================================
+# TEST 44 — diverged feature branch auto-rebase integration
+# ======================================================================
+test_44_diverged_feature_auto_rebase() {
+    echo ""
+    echo "=== Test 44: diverged feature branch auto-rebase ==="
+    cleanup_tempdir
+    setup_tempdir
+    setup_base_repo
+
+    # Advance remote feature branch from OTHER_DIR
+    cd "$OTHER_DIR"
+    git_checkout feature/test
+    echo "remote feature change" > remote_feat.txt
+    git add remote_feat.txt && git_commit -m "remote feature commit"
+    git_push origin feature/test
+
+    # Add a local commit to TEST_DIR feature/test
+    cd "$TEST_DIR"
+    git_checkout feature/test
+    echo "local feature change" > local_feat.txt
+    git add local_feat.txt && git_commit -m "local feature commit"
+
+    # Now local is 1 ahead, 1 behind origin/feature/test (diverged)
+    run_gx sync
+
+    assert_exit_code "exits 0" 0
+    assert_file_exists "remote feat change integrated" "remote_feat.txt"
+    assert_file_exists "local feat change preserved" "local_feat.txt"
+    assert_output_contains "rebased onto remote feature" "Rebasing onto origin/feature/test"
+}
+
+# ======================================================================
+# TEST 45 — ship hint when commits ready to publish
+# ======================================================================
+test_45_ship_hint_when_ahead() {
+    echo ""
+    echo "=== Test 45: ship hint when commits ready to publish ==="
+    cleanup_tempdir
+    setup_tempdir
+    setup_base_repo
+
+    cd "$TEST_DIR"
+    git_checkout feature/test
+    echo "ship hint work" > shiptest.txt
+    git add shiptest.txt && git_commit -m "commit for ship hint"
+
+    run_gx sync
+
+    assert_exit_code "exits 0" 0
+    assert_output_contains "ship hint shown" "hint: Run gx ship to push."
+
+    # On base branch (develop), ship hint should NOT be shown
+    git_checkout develop
+    run_gx sync
+    assert_exit_code "exits 0" 0
+    assert_output_not_contains "no ship hint on base" "Run gx ship to push"
+}
+
+# ======================================================================
 # RUN ALL
 # ======================================================================
 cleanup_tempdir
@@ -1331,6 +1439,10 @@ run_test test_38_abort_merge_with_stash "Test 38: abort merge with stash (Q6)"
 run_test test_39_nothing_to_abort "Test 39: nothing to abort (Q1)"
 run_test test_40_orphaned_stash_abort "Test 40: orphaned stash nothing to abort (Q2)"
 run_test test_41_abort_and_continue_exclusive "Test 41: --abort + --continue exclusion"
+run_test test_42_sync_target_branch_match "Test 42: sync target branch match"
+run_test test_43_target_only_skips_base "Test 43: target-only skips base branch"
+run_test test_44_diverged_feature_auto_rebase "Test 44: diverged feature auto-rebase"
+run_test test_45_ship_hint_when_ahead "Test 45: ship hint when ahead"
 
 echo ""
 print_test_summary

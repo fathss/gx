@@ -21,11 +21,11 @@ Auto-detects the remote and default branch, then writes them to .gx/config.
 Override detection with --remote and --branch flags or positional arguments.
 
 Examples:
-  gx init                               Auto-detect and write config
-  gx init upstream                      Force remote to "upstream"
-  gx init upstream main                 Force both
-  gx init --remote upstream --branch develop  Flag form
-  gx init --force                       Overwrite existing config`,
+  gx init                                       Auto-detect and write config
+  gx init upstream                              Force remote to "upstream"
+  gx init upstream main                         Force both
+  gx init --remote upstream --branch develop    Flag form
+  gx init --force                               Overwrite existing config`,
 	Annotations: map[string]string{"no_config": ""},
 	Args:        cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {

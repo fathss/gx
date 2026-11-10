@@ -56,6 +56,26 @@ func LocalBranchExists(run runner.Executor, branch string) bool {
 	return err == nil
 }
 
+// IsAncestor reports whether ancestor is an ancestor of descendant.
+func IsAncestor(run runner.Executor, ancestor, descendant string) bool {
+	err := run.Run("merge-base", "--is-ancestor", ancestor, descendant)
+	return err == nil
+}
+
+// HasUnappliedCommits checks if candidate has any commits not yet applied to upstream (by patch-id).
+func HasUnappliedCommits(run runner.Executor, upstream, candidate string) (bool, error) {
+	out, err := run.Output("cherry", upstream, candidate)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "+") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // MergedBranches returns local branches that are merged into the given base.
 // It wraps `git branch --merged <base>`.
 func MergedBranches(run runner.Executor, base string) ([]string, error) {

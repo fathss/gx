@@ -17,8 +17,27 @@ var (
 )
 
 var syncCmd = &cobra.Command{
-	Use:   "sync [<remote> [<base_branch>]]",
-	Short: "Synchronize the current branch with the base branch",
+	Use:   "sync [<remote> [<target_branch>]]",
+	Short: "Synchronize the current branch with remote and base branch",
+	Long: `Synchronize the current branch with its remote tracking branch and base branch.
+
+Executes a safe two-phase synchronization:
+  1. Reconciles the current branch with its remote counterpart
+  2. Fast-forwards the local base branch and integrates it (rebase or merge)
+
+If a target branch is specified, gx sync verifies that it matches the currently
+checked-out branch and syncs only with that remote branch.
+
+Uncommitted working tree changes are automatically stashed and restored.
+
+Examples:
+  gx sync                       Sync with remote feature branch then base branch
+  gx sync origin                Sync using a specific remote
+  gx sync origin feat/login     Sync only with remote tracking branch
+  gx sync --rebase              Force rebase strategy (overrides config)
+  gx sync --merge               Force merge strategy (overrides config)
+  gx sync --continue            Resume paused sync after resolving conflicts
+  gx sync --abort               Abort in-progress sync and restore state`,
 	Args:  cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if syncAbort && syncContinue {
@@ -91,16 +110,24 @@ var syncCmd = &cobra.Command{
 		if len(args) >= 1 {
 			cfg.Remote = args[0]
 		}
+		var targetBranch string
 		if len(args) >= 2 {
-			cfg.DefaultBranch = args[1]
+			if syncContinue || syncSkip || syncAbort {
+				return &cli.Error{
+					Message: "Cannot specify a target branch with --continue, --skip, or --abort.",
+					Hint:    "These flags operate on the in-progress sync for the current branch.",
+				}
+			}
+			targetBranch = args[1]
 		}
 
 		return workflow.Sync(run, cfg, workflow.SyncOptions{
-			Continue: syncContinue,
-			Rebase:   syncRebase,
-			Merge:    syncMerge,
-			Abort:    syncAbort,
-			Skip:     syncSkip,
+			Continue:     syncContinue,
+			Rebase:       syncRebase,
+			Merge:        syncMerge,
+			Abort:        syncAbort,
+			Skip:         syncSkip,
+			TargetBranch: targetBranch,
 		})
 	},
 }

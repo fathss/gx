@@ -22,7 +22,11 @@ Shows six sections in fixed order:
 
 gx status is read-only — it never mutates state, never fetches, and never
 blocks on in-progress rebase or merge. Use --verbose to show the underlying
-git commands that would otherwise be hidden.`,
+git commands that would otherwise be hidden.
+
+Examples:
+  gx status       Show repository status snapshot
+  gx status -v    Show status with underlying git commands`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()

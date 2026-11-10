@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-10
+
+### Added
+
+- **Two-Phase Feature Branch Sync in `gx sync`**:
+  - Automatically reconciles local feature branches with their remote tracking counterpart (`origin/<branch>`) in Phase 1 before integrating with base branch in Phase 2.
+  - Detects divergence on feature branches and automatically integrates remote commits using the configured/specified sync strategy (`rebase` or `merge`).
+  - Added patch-ID comparison (`git cherry`) via `git.HasUnappliedCommits` to avoid redundant re-rebasing of already applied commits, ensuring consecutive syncs are fully idempotent.
+  - Added `git.IsAncestor` check to skip redundant rebase/merge operations when the base branch is already an ancestor of HEAD.
+- **Target Branch Sync & Mismatch Guard in `gx sync [<remote> [<target_branch>]]`**:
+  - Specifying `<target_branch>` matching current branch syncs exclusively with `<remote>/<target_branch>`, skipping base branch reconciliation.
+  - Branch mismatch guard: blocks execution immediately with a checkout hint if `<target_branch>` differs from the currently checked-out branch.
+- **Contextual `gx ship` Hint**:
+  - `gx sync` (and `--continue`/`--skip`) prompts `hint: Run gx ship to push.` when sync completes on a feature branch with unpushed commits.
+
+### Changed
+
+- **`gx clean` Local & Remote Pruning**:
+  - Plain `gx clean` strictly prunes merged local branches and no longer removes remote-tracking refs whose branches still exist on remote.
+  - `gx clean --remote` replaces double confirmation prompts with a single unified confirmation prompt listing both local and remote branches on `origin`.
+  - Eliminates duplicate counting of remote tracking refs.
+- **CLI Help Text (`-h`) Standardization**:
+  - Standardized `Examples:` blocks across all commands (`clean`, `sync`, `ship`, `status`, `save`, `stage`, `init`, `config`) without `#` comments.
+  - Aligned all descriptions to column 29 (4 spaces after the furthest command).
+  - Removed duplicate hardcoded `Flags:` sections inside command descriptions (`save`, `stage`).
+  - Added comprehensive `Long:` descriptions and `Examples:` to `gx sync`, `gx ship`, and `gx status`.
+
 ## 0.2.1 - 2026-11-09
 
 ### Changed

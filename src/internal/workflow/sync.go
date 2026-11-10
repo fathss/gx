@@ -13,20 +13,27 @@ import (
 // SyncOptions carries the invocation mode for gx sync. Named fields so call
 // sites and flag-conflict validation read as one structured interface.
 type SyncOptions struct {
-	Continue bool
-	Rebase   bool
-	Merge    bool
-	Abort    bool
-	Skip     bool
+	Continue     bool
+	Rebase       bool
+	Merge        bool
+	Abort        bool
+	Skip         bool
+	TargetBranch string
+}
+
+func isProtectedBranch(cfg *config.Config, branch string) bool {
+	if branch == "" || branch == cfg.DefaultBranch {
+		return true
+	}
+	for _, p := range cfg.ProtectedBranches {
+		if branch == p {
+			return true
+		}
+	}
+	return false
 }
 
 func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
-	release, err := acquireSyncLock(run)
-	if err != nil {
-		return err
-	}
-	defer release()
-
 	// 1. Determine current branch and classify repository state. The gx
 	// ownership marker is authoritative when present; the branch it names is
 	// used to scope every stash lookup (HEAD is detached during a rebase).
@@ -36,6 +43,21 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			Message: "Failed to determine current branch.",
 		}
 	}
+
+	// Pre-flight guard: if a target branch was explicitly specified, it must
+	// match the currently checked out branch.
+	if opts.TargetBranch != "" && opts.TargetBranch != current {
+		return &cli.Error{
+			Message: fmt.Sprintf("You are currently on %q, but specified %q.", current, opts.TargetBranch),
+			Hint:    fmt.Sprintf("Switch branches first:\n  git checkout %s\n  gx sync", opts.TargetBranch),
+		}
+	}
+
+	release, err := acquireSyncLock(run)
+	if err != nil {
+		return err
+	}
+	defer release()
 	verdict, stateBranch, hasMarker := inspectForSync(run, current)
 	// A marker with no paused operation is stale. If it belongs to another
 	// branch (the user aborted a gx rebase manually and switched branches),
@@ -113,10 +135,10 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 	case q4GXRebase:
 		// Q4: gx-orchestrated rebase — --continue resumes, --skip skips, plain blocks
 		if opts.Skip {
-			return autoSkipSync(run, sessionGit)
+			return autoSkipSync(run, sessionGit, cfg)
 		}
 		if opts.Continue {
-			return autoContinueSync(run, sessionGit)
+			return autoContinueSync(run, sessionGit, cfg)
 		}
 		return &cli.Error{
 			Message: "A rebase is already in progress.",
@@ -132,7 +154,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			}
 		}
 		if opts.Continue {
-			return autoContinueMergeSync(run, sessionGit)
+			return autoContinueMergeSync(run, sessionGit, cfg)
 		}
 		return &cli.Error{
 			Message: "A merge is already in progress.",
@@ -226,26 +248,180 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			)
 		}
 
-		// 6. If already on base branch — fast-forward only (fetch already done above)
-		if current == cfg.DefaultBranch {
-			baseRef := git.Qualify(cfg.Remote, cfg.DefaultBranch)
-			if !git.RemoteBranchExists(run, cfg.Remote, cfg.DefaultBranch) {
+		// Use flag override if provided, otherwise config
+		strategy := cfg.SyncStrategy
+		switch {
+		case opts.Rebase:
+			strategy = "rebase"
+		case opts.Merge:
+			strategy = "merge"
+		}
+
+		integrate := func(target, ontoLabel string) (settle, error) {
+			if err := sessionGit.MarkState(); err != nil {
 				return settleRestore, &cli.Error{
-					Message: fmt.Sprintf("Remote branch '%s' not found.", baseRef),
-					Hint:    "Has it been deleted? Check the remote repository.",
+					Message: "Failed to record the in-progress sync state.",
+					Hint:    "Check that the repository is writable, then run gx sync again.",
 				}
 			}
-			run.State(fmt.Sprintf("Fast-forwarding %s...", cfg.DefaultBranch))
-			if err := git.FastForward(run, cfg.Remote, cfg.DefaultBranch); err != nil {
-				return settleRestore, &cli.Error{
-					Message: fmt.Sprintf("Local branch '%s' has diverged from '%s'.", cfg.DefaultBranch, baseRef),
-					Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + cfg.DefaultBranch + " " + baseRef + "\nOr rebase and force-push:\n  git rebase " + baseRef + "\n  git push --force-with-lease",
+			switch strategy {
+			case "merge":
+				run.State(fmt.Sprintf("Merging %s...", target))
+				if err := git.Merge(run, target); err != nil {
+					if git.IsMergeInProgress(run) {
+						msg := "Merge stopped because of conflicts."
+						files, filesErr := git.ConflictedFiles(run)
+						switch {
+						case filesErr != nil:
+							msg += " The conflicted files could not be listed."
+						case len(files) > 0:
+							msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
+						}
+						hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
+						if session.acquired {
+							hint += " Your changes were stashed and will be restored automatically."
+						}
+						return settlePause, &cli.Error{
+							Message: msg,
+							Hint:    hint,
+						}
+					}
+					return settleRestore, &cli.Error{
+						Message: "Merge failed.",
+					}
+				}
+			default:
+				run.State(fmt.Sprintf("Rebasing onto %s...", ontoLabel))
+				if err := git.Rebase(run, target); err != nil {
+					if git.IsRebaseInProgress(run) {
+						msg := "Rebase stopped because of conflicts."
+						if info := git.CurrentRebasePatchInfo(run); info != "" {
+							msg = fmt.Sprintf("Rebase stopped because of conflicts while applying commit %s.", info)
+						}
+						files, filesErr := git.ConflictedFiles(run)
+						switch {
+						case filesErr != nil:
+							msg += " The conflicted files could not be listed."
+						case len(files) > 0:
+							msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
+						}
+						hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
+						if session.acquired {
+							hint += " Your changes were stashed and will be restored automatically."
+						}
+						return settlePause, &cli.Error{
+							Message: msg,
+							Hint:    hint,
+						}
+					}
+					return settleRestore, &cli.Error{
+						Message: "Rebase failed.",
+					}
 				}
 			}
 			return settleCommit, nil
 		}
 
-		// 7. Switch to base branch, fast-forward, return to original
+		// Case 1: Target-only mode (opts.TargetBranch == current)
+		if opts.TargetBranch != "" {
+			if isProtectedBranch(cfg, current) {
+				baseRef := git.Qualify(cfg.Remote, current)
+				if !git.RemoteBranchExists(run, cfg.Remote, current) {
+					return settleRestore, &cli.Error{
+						Message: fmt.Sprintf("Remote branch '%s' not found.", baseRef),
+						Hint:    "Has it been deleted? Check the remote repository.",
+					}
+				}
+				run.State(fmt.Sprintf("Fast-forwarding %s...", current))
+				if err := git.FastForward(run, cfg.Remote, current); err != nil {
+					return settleRestore, &cli.Error{
+						Message: fmt.Sprintf("Local branch '%s' has diverged from '%s'.", current, baseRef),
+						Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + current + " " + baseRef + "\nOr rebase and force-push:\n  git rebase " + baseRef + "\n  git push --force-with-lease",
+					}
+				}
+				return settleCommit, nil
+			}
+
+			// Feature branch target-only
+			if !git.RemoteBranchExists(run, cfg.Remote, current) {
+				run.Info(fmt.Sprintf("Remote branch '%s/%s' does not exist yet.", cfg.Remote, current))
+				return settleCommit, nil
+			}
+			div, err := git.CheckDivergence(run, cfg.Remote, current)
+			if err != nil {
+				return settleRestore, &cli.Error{
+					Message: "Failed to check divergence status.",
+				}
+			}
+			if div.Behind > 0 && div.Ahead == 0 {
+				run.State(fmt.Sprintf("Fast-forwarding %s from %s/%s...", current, cfg.Remote, current))
+				if err := git.FastForward(run, cfg.Remote, current); err != nil {
+					return settleRestore, &cli.Error{
+						Message: fmt.Sprintf("Failed to fast-forward %s.", current),
+					}
+				}
+				return settleCommit, nil
+			}
+			if div.Behind > 0 && div.Ahead > 0 {
+				remoteRef := git.Qualify(cfg.Remote, current)
+				return integrate(remoteRef, remoteRef)
+			}
+			return settleCommit, nil
+		}
+
+		// Case 2: Normal mode on protected/base branch
+		if isProtectedBranch(cfg, current) {
+			baseRef := git.Qualify(cfg.Remote, current)
+			if !git.RemoteBranchExists(run, cfg.Remote, current) {
+				return settleRestore, &cli.Error{
+					Message: fmt.Sprintf("Remote branch '%s' not found.", baseRef),
+					Hint:    "Has it been deleted? Check the remote repository.",
+				}
+			}
+			run.State(fmt.Sprintf("Fast-forwarding %s...", current))
+			if err := git.FastForward(run, cfg.Remote, current); err != nil {
+				return settleRestore, &cli.Error{
+					Message: fmt.Sprintf("Local branch '%s' has diverged from '%s'.", current, baseRef),
+					Hint:    "The base branch should not have local commits.\nMove them to a feature branch:\n  git checkout -b fix/description\n  git branch -f " + current + " " + baseRef + "\nOr rebase and force-push:\n  git rebase " + baseRef + "\n  git push --force-with-lease",
+				}
+			}
+			return settleCommit, nil
+		}
+
+		// Case 3: Normal mode on feature branch — Two-Phase Sync
+		// Phase 1: Reconcile with remote feature branch if it exists
+		if git.RemoteBranchExists(run, cfg.Remote, current) {
+			div, err := git.CheckDivergence(run, cfg.Remote, current)
+			if err != nil {
+				return settleRestore, &cli.Error{
+					Message: "Failed to check divergence status.",
+				}
+			}
+			if div.Behind > 0 && div.Ahead == 0 {
+				run.State(fmt.Sprintf("Fast-forwarding %s from %s/%s...", current, cfg.Remote, current))
+				if err := git.FastForward(run, cfg.Remote, current); err != nil {
+					return settleRestore, &cli.Error{
+						Message: fmt.Sprintf("Failed to fast-forward %s.", current),
+					}
+				}
+			} else if div.Behind > 0 && div.Ahead > 0 {
+				remoteRef := git.Qualify(cfg.Remote, current)
+				unapplied, err := git.HasUnappliedCommits(run, "HEAD", remoteRef)
+				if err != nil {
+					return settleRestore, &cli.Error{
+						Message: "Failed to compare commits with remote branch.",
+					}
+				}
+				if unapplied {
+					outcome, err := integrate(remoteRef, remoteRef)
+					if err != nil || outcome != settleCommit {
+						return outcome, err
+					}
+				}
+			}
+		}
+
+		// Phase 2: Switch to base branch, fast-forward, return to original and integrate
 		if !git.LocalBranchExists(run, cfg.DefaultBranch) {
 			return settleRestore, &cli.Error{
 				Message: fmt.Sprintf("Local branch '%s' does not exist.", cfg.DefaultBranch),
@@ -289,95 +465,33 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			}
 		}
 
-		// 8. Rebase or merge. Record ownership first: a clean tree creates no
-		// stash, so the marker is what makes a conflict from a clean tree
-		// resumable via --continue/--abort. The marker is cleared on every
-		// settle except pause.
-		if err := sessionGit.MarkState(); err != nil {
-			return settleRestore, &cli.Error{
-				Message: "Failed to record the in-progress sync state.",
-				Hint:    "Check that the repository is writable, then run gx sync again.",
-			}
+		// If the base branch is already an ancestor of current, no rebase/merge is needed
+		if git.IsAncestor(run, cfg.DefaultBranch, current) {
+			return settleCommit, nil
 		}
 
-		// Use flag override if provided, otherwise config
-		strategy := cfg.SyncStrategy
-		switch {
-		case opts.Rebase:
-			strategy = "rebase"
-		case opts.Merge:
-			strategy = "merge"
-		}
-		switch strategy {
-		case "merge":
-			run.State(fmt.Sprintf("Merging %s...", cfg.DefaultBranch))
-			if err := git.Merge(run, cfg.DefaultBranch); err != nil {
-				if git.IsMergeInProgress(run) {
-					// Leave merge state, preserve stash — user resolves and re-runs
-					msg := "Merge stopped because of conflicts."
-					files, filesErr := git.ConflictedFiles(run)
-					switch {
-					case filesErr != nil:
-						msg += " The conflicted files could not be listed."
-					case len(files) > 0:
-						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
-					}
-					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
-					if session.acquired {
-						hint += " Your changes were stashed and will be restored automatically."
-					}
-					return settlePause, &cli.Error{
-						Message: msg,
-						Hint:    hint,
-					}
-				}
-				return settleRestore, &cli.Error{
-					Message: "Merge failed.",
-				}
-			}
-		default:
-			run.State(fmt.Sprintf("Rebasing onto %s...", cfg.DefaultBranch))
-			if err := git.Rebase(run, cfg.DefaultBranch); err != nil {
-				if git.IsRebaseInProgress(run) {
-					// Leave the rebase in progress — user resolves and re-runs gx sync.
-					// The session settles as pause — the stash stays for --continue.
-					msg := "Rebase stopped because of conflicts."
-					if info := git.CurrentRebasePatchInfo(run); info != "" {
-						msg = fmt.Sprintf("Rebase stopped because of conflicts while applying commit %s.", info)
-					}
-					files, filesErr := git.ConflictedFiles(run)
-					switch {
-					case filesErr != nil:
-						msg += " The conflicted files could not be listed."
-					case len(files) > 0:
-						msg += fmt.Sprintf(" Conflicted files: %s", strings.Join(files, ", "))
-					}
-					hint := "Resolve the conflicts, stage the files, then run gx sync --continue."
-					if session.acquired {
-						hint += " Your changes were stashed and will be restored automatically."
-					}
-					return settlePause, &cli.Error{
-						Message: msg,
-						Hint:    hint,
-					}
-				}
-				// Non-conflict rebase failure
-				return settleRestore, &cli.Error{
-					Message: "Rebase failed.",
-				}
-			}
-		}
-
-		return settleCommit, nil
+		return integrate(cfg.DefaultBranch, cfg.DefaultBranch)
 	})
 	run.StopSpinner()
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 9. Informational hint to push if on feature branch and commits are ready to ship
+	if !isProtectedBranch(cfg, current) {
+		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
+		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
+			run.Info("hint: Run gx ship to push.")
+		}
+	}
+
+	return nil
 }
 
 // autoContinueSync continues an in-progress rebase. When a gx stash is present
 // (from a previous gx sync run), the resumed session commits it after the
 // rebase completes. Only called for gx-orchestrated rebases (Q4).
-func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
+func autoContinueSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		run.Info(fmt.Sprintf("Continuing rebase — applying %s...", info))
 	} else {
@@ -421,12 +535,23 @@ func autoContinueSync(run runner.Executor, sessionGit syncGit) error {
 	}
 
 	// Rebase succeeded — commit the resumed session (pop + orphan cleanup)
-	return resume(sessionGit).settle(settleCommit)
+	if err := resume(sessionGit).settle(settleCommit); err != nil {
+		return err
+	}
+
+	current, err := git.CurrentBranch(run)
+	if err == nil && !isProtectedBranch(cfg, current) {
+		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
+		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
+			run.Info("hint: Run gx ship to push.")
+		}
+	}
+	return nil
 }
 
 // autoContinueMergeSync continues a paused merge. Behaves like autoContinueSync
 // but for merges: runs git merge --continue, then commits the resumed session.
-func autoContinueMergeSync(run runner.Executor, sessionGit syncGit) error {
+func autoContinueMergeSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) error {
 	run.Info("Continuing merge...")
 
 	if err := git.MergeContinue(run); err != nil {
@@ -454,7 +579,18 @@ func autoContinueMergeSync(run runner.Executor, sessionGit syncGit) error {
 	}
 
 	// Merge succeeded — commit the resumed session (pop + orphan cleanup)
-	return resume(sessionGit).settle(settleCommit)
+	if err := resume(sessionGit).settle(settleCommit); err != nil {
+		return err
+	}
+
+	current, err := git.CurrentBranch(run)
+	if err == nil && !isProtectedBranch(cfg, current) {
+		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
+		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
+			run.Info("hint: Run gx ship to push.")
+		}
+	}
+	return nil
 }
 
 // abortWithStash aborts an in-progress operation (rebase or merge) via the
@@ -474,7 +610,7 @@ func abortWithStash(run runner.Executor, sessionGit syncGit, abortFn func(runner
 // autoSkipSync skips the currently-applying commit during a gx-orchestrated
 // rebase. If the rebase is still in progress afterwards, the session stays
 // paused (stash kept). When the rebase finished, the session commits.
-func autoSkipSync(run runner.Executor, sessionGit syncGit) error {
+func autoSkipSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		run.Info(fmt.Sprintf("Skipping commit %s...", info))
 	} else {
@@ -505,5 +641,16 @@ func autoSkipSync(run runner.Executor, sessionGit syncGit) error {
 
 	// Rebase finished after skip — commit the resumed session
 	run.Success("Rebase completed.")
-	return resume(sessionGit).settle(settleCommit)
+	if err := resume(sessionGit).settle(settleCommit); err != nil {
+		return err
+	}
+
+	current, err := git.CurrentBranch(run)
+	if err == nil && !isProtectedBranch(cfg, current) {
+		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
+		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
+			run.Info("hint: Run gx ship to push.")
+		}
+	}
+	return nil
 }

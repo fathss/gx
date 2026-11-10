@@ -7,12 +7,12 @@ Welcome to the gx documentation.
 User-facing reference for each gx command:
 
 - [gx init](commands/init.md) — Initialize `.gx/config` for a repository with auto-detection
-- [gx sync](commands/sync.md) — Sync feature branch with base branch (stash, fetch, rebase/merge, restore)
+- [gx sync](commands/sync.md) — Sync feature branch with remote tracking branch and base branch
 - [gx stage](commands/stage.md) — Stage modified tracked and untracked files with preview and sensitive pattern guardrails
 - [gx save](commands/save.md) — Stage changes and commit with sensitive pattern and empty commit guards
 - [gx ship](commands/ship.md) — Push feature branch and output PR creation URL
 - [gx status](commands/status.md) — Human-readable repository state snapshot
-- [gx clean](commands/clean.md) — Prune branches merged into the base branch
+- [gx clean](commands/clean.md) — Prune merged local branches (and remote branches on origin with --remote)
 - [gx config](commands/config.md) — Inspect and update `.gx/config` values
 
 ## Concepts & Specifications
