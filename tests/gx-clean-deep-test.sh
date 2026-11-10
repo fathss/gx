@@ -181,7 +181,7 @@ test_c01_custom_protected() {
     assert_output_contains "pruned summary" "Pruned"
     assert_local_branch_exists "protected keepme kept" "keepme"
     assert_local_branch_not_exists "unprotected goaway pruned" "goaway"
-    assert_remote_tracking_not_exists "goaway tracking pruned" "goaway"
+    assert_remote_tracking_exists "goaway tracking kept without --remote" "goaway"
     assert_remote_tracking_exists "keepme tracking kept" "keepme"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
@@ -208,8 +208,9 @@ test_c02_current_tracking() {
     assert_exit_code "exits 0" 0
     assert_branch "still on current branch" "feature/current"
     assert_local_branch_exists "current local branch kept" "feature/current"
-    assert_remote_tracking_not_exists "origin/current tracking pruned" "feature/current"
+    assert_remote_tracking_exists "origin/current tracking kept without --remote" "feature/current"
     assert_remote_branch_exists "remote branch kept without --remote" "feature/current"
+    assert_output_contains "reports zero pruned" "Pruned 0"
     assert_origin_refs_unchanged "remote refs untouched"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
@@ -247,8 +248,9 @@ test_c03_local_ahead() {
 
     assert_exit_code "exits 0" 0
     assert_local_branch_exists "local unmerged work kept" "feature/ahead"
-    assert_remote_tracking_not_exists "merged tracking pruned" "feature/ahead"
+    assert_remote_tracking_exists "merged tracking kept without --remote" "feature/ahead"
     assert_remote_branch_exists "remote branch kept without --remote" "feature/ahead"
+    assert_output_contains "reports zero pruned" "Pruned 0"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
     assert_exit_output_consistent "exit/output consistent"
@@ -298,24 +300,24 @@ test_c05_yes_case_insensitive() {
 }
 
 # ======================================================================
-# C06 — EOF at the second prompt declines only the remote scope
+# C06 — Declining the unified prompt keeps local and remote branches
 # ======================================================================
 # Contract: C06
 # Class: SPEC
-# Catches: hanging on EOF or treating EOF as yes for remote deletion
+# Catches: hanging on decline or deleting branches despite decline
 test_c06_eof_second_prompt() {
     echo ""
-    echo "=== C06: EOF at second prompt declines remote ==="
+    echo "=== C06: declining unified prompt keeps branches ==="
     setup_clean_repo
     create_merged_branch "feature/eof"
 
-    run_gx_stdin "y" clean --remote
+    run_gx_stdin "n" clean --remote
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "remote prompt shown" "Delete 1 remote branch"
-    assert_local_branch_not_exists "local pruned after first yes" "feature/eof"
-    assert_remote_tracking_not_exists "tracking pruned" "feature/eof"
-    assert_remote_branch_exists "remote kept on EOF" "feature/eof"
+    assert_output_contains "unified prompt shown" "Prune 1 local branch(es) and delete 1 remote branch(es)"
+    assert_local_branch_exists "local kept on decline" "feature/eof"
+    assert_remote_tracking_exists "tracking kept on decline" "feature/eof"
+    assert_remote_branch_exists "remote kept on decline" "feature/eof"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
     assert_exit_output_consistent "exit/output consistent"
@@ -487,10 +489,10 @@ test_c12_worktree_branch() {
 
     assert_exit_code "exits 0" 0
     assert_local_branch_exists "worktree branch kept" "feature/worktree"
-    assert_remote_tracking_not_exists "tracking ref still pruned" "feature/worktree"
+    assert_remote_tracking_exists "tracking ref kept without --remote" "feature/worktree"
     assert_remote_branch_exists "remote branch kept without --remote" "feature/worktree"
     assert_output_contains "worktree skip explained" "worktree"
-    assert_output_contains "reports the tracking ref it pruned" "Pruned 1"
+    assert_output_contains "reports zero pruned" "Pruned 0"
     assert_output_not_contains "local branch not deleted" "Deleted branch feature/worktree"
     if [ -d "$TEST_ROOT/wt" ]; then
         pass "worktree still present"
@@ -583,7 +585,8 @@ test_c15_idempotent() {
     assert_exit_code "second clean exits 0" 0
     assert_local_branch_not_exists "branch stays pruned" "feature/idem-clean"
     assert_remote_branch_exists "remote branch still untouched" "feature/idem-clean"
-    assert_remote_tracking_not_exists "re-created tracking ref pruned again" "feature/idem-clean"
+    assert_remote_tracking_exists "tracking ref still exists" "feature/idem-clean"
+    assert_output_contains "second clean reports 0" "Pruned 0"
     assert_head_unchanged "HEAD unchanged" "$head_before"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"

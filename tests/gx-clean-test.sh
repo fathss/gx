@@ -282,14 +282,14 @@ test_01_prune_merged_local() {
 }
 
 # ======================================================================
-# TEST 02 — Remote-tracking ref pruned (no --remote)
+# TEST 02 — Remote-tracking ref kept without --remote
 # ======================================================================
 # Contract: C02
 # Class: SPEC
-# Catches: clean skipping deletion of remote-tracking refs for merged branches
+# Catches: clean deleting remote-tracking refs without --remote when branch still exists on remote
 test_02_prune_remote_tracking() {
     echo ""
-    echo "=== Test 02: remote-tracking ref pruned ==="
+    echo "=== Test 02: remote-tracking ref kept without --remote ==="
     setup_clean_repo
     cd "$TEST_DIR"
     create_merged_branch "feature/remote-track"
@@ -302,7 +302,8 @@ test_02_prune_remote_tracking() {
 
     assert_exit_code "exits 0" 0
     assert_output_contains "shows Pruned summary" "Pruned"
-    assert_remote_tracking_not_exists "remote-tracking ref pruned" "feature/remote-track"
+    assert_local_branch_not_exists "local branch pruned" "feature/remote-track"
+    assert_remote_tracking_exists "remote-tracking ref kept without --remote" "feature/remote-track"
     assert_remote_branch_exists "remote branch still exists without --remote" "feature/remote-track"
     assert_git_valid "repo integrity"
     assert_no_commits_lost "no commits lost"
@@ -453,15 +454,14 @@ test_08_remote_prompt_lists_branches() {
     git_checkout develop >/dev/null 2>&1
 
     snapshot_state
-    run_gx_stdin $'y\nn' clean --remote
+    run_gx_stdin "n" clean --remote
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "local prompt shown" "Prune"
-    assert_output_contains "remote prompt lists count" "Delete 2 remote branch"
+    assert_output_contains "remote branches section" "Remote branches on origin:"
     assert_output_contains "shows origin/feature/list-a" "origin/feature/list-a"
     assert_output_contains "shows origin/feature/list-b" "origin/feature/list-b"
     assert_output_contains "shows [y/N] prompt" "[y/N]"
-    assert_local_branch_not_exists "local branch pruned after local confirm" "feature/list-a"
+    assert_local_branch_exists "local branch kept after decline" "feature/list-a"
     assert_remote_branch_exists "origin/feature/list-a still exists" "feature/list-a"
     assert_remote_branch_exists "origin/feature/list-b still exists" "feature/list-b"
     assert_git_valid "repo integrity"
@@ -484,12 +484,11 @@ test_09_remote_confirm_deletes() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/remote-confirm"
 
     snapshot_state
-    run_gx_stdin $'y\ny' clean --remote
+    run_gx_stdin "y" clean --remote
 
     assert_exit_code "exits 0" 0
     assert_output_contains "Pruned summary" "Pruned"
-    assert_output_contains "local prompt shown" "Prune"
-    assert_output_contains "remote prompt shown" "Delete 1 remote branch"
+    assert_output_contains "unified prompt shown" "Prune 1 local branch(es) and delete 1 remote branch(es)"
     assert_remote_branch_not_exists "remote branch deleted after confirm" "feature/remote-confirm"
     assert_local_branch_not_exists "local branch pruned" "feature/remote-confirm"
     assert_remote_tracking_not_exists "remote-tracking pruned" "feature/remote-confirm"
@@ -513,12 +512,12 @@ test_10_remote_decline_keeps_remote() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/remote-decline"
 
     snapshot_state
-    run_gx_stdin $'y\nn' clean --remote
+    run_gx_stdin "n" clean --remote
 
     assert_exit_code "exits 0" 0
     assert_remote_branch_exists "remote branch still intact after decline" "feature/remote-decline"
-    assert_local_branch_not_exists "local branch pruned even on decline" "feature/remote-decline"
-    assert_remote_tracking_not_exists "remote-tracking pruned even on decline" "feature/remote-decline"
+    assert_local_branch_exists "local branch still intact after decline" "feature/remote-decline"
+    assert_remote_tracking_exists "remote-tracking still intact after decline" "feature/remote-decline"
     assert_git_valid "repo integrity"
 }
 
@@ -539,11 +538,11 @@ test_11_remote_empty_defaults_decline() {
     assert_remote_branch_exists "pre: remote branch exists" "feature/empty-decline"
 
     snapshot_state
-    run_gx_stdin $'y\n\n' clean --remote
+    run_gx_stdin "" clean --remote
 
     assert_exit_code "exits 0" 0
     assert_remote_branch_exists "remote branch still intact (empty = decline)" "feature/empty-decline"
-    assert_local_branch_not_exists "local branch pruned" "feature/empty-decline"
+    assert_local_branch_exists "local branch intact" "feature/empty-decline"
     assert_git_valid "repo integrity"
 }
 
@@ -869,7 +868,6 @@ test_24_local_prompt_lists_refs() {
     assert_output_contains "shows local prompt" "Prune"
     assert_output_contains "lists local branch" "feature/prompt-a"
     assert_output_contains "lists second local branch" "feature/prompt-b"
-    assert_output_contains "lists remote-tracking ref" "origin/feature/prompt-a"
     assert_output_contains "shows [y/N] prompt" "[y/N]"
     assert_git_valid "repo integrity"
 }
@@ -927,26 +925,26 @@ test_26_local_empty_defaults_decline() {
 }
 
 # ======================================================================
-# TEST 27 — Local declined, remote confirmed: only remote branches deleted
+# TEST 27 — Only remote branch to prune: confirmed
 # ======================================================================
 # Contract: C27
 # Class: SPEC
-# Catches: clean coupling the local answer to the remote answer (or vice versa)
+# Catches: clean when only remote branches are candidates
 test_27_local_declined_remote_confirmed() {
     echo ""
-    echo "=== Test 27: local declined, remote confirmed ==="
+    echo "=== Test 27: only remote branch confirmed ==="
     setup_clean_repo
     cd "$TEST_DIR"
     create_merged_branch "feature/remote-only"
+    git branch -d feature/remote-only >/dev/null 2>&1
     git_checkout develop >/dev/null 2>&1
 
     assert_remote_branch_exists "pre: remote branch exists" "feature/remote-only"
 
     snapshot_state
-    run_gx_stdin $'n\ny' clean --remote
+    run_gx_stdin "y" clean --remote
 
     assert_exit_code "exits 0" 0
-    assert_local_branch_exists "local branch intact after decline" "feature/remote-only"
     assert_branch "still on develop" "develop"
     assert_remote_branch_not_exists "remote branch deleted after confirm" "feature/remote-only"
     assert_output_contains "reports Pruned 1" "Pruned 1"
@@ -977,7 +975,8 @@ test_28_yes_skips_prompt() {
     assert_output_not_contains "no confirmation prompt" "[y/N]"
     assert_output_contains "shows Pruned summary" "Pruned"
     assert_local_branch_not_exists "local branch pruned without prompt" "feature/yes-local"
-    assert_remote_tracking_not_exists "remote-tracking pruned without prompt" "feature/yes-local"
+    assert_remote_tracking_exists "remote-tracking kept without --remote" "feature/yes-local"
+    assert_remote_branch_exists "remote branch untouched without --remote" "feature/yes-local"
     assert_git_valid "repo integrity"
     assert_no_commits_lost "no commits lost"
 }
