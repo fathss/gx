@@ -17,8 +17,8 @@ var (
 )
 
 var syncCmd = &cobra.Command{
-	Use:   "sync [<remote> [<base_branch>]]",
-	Short: "Synchronize the current branch with the base branch",
+	Use:   "sync [<remote> [<target_branch>]]",
+	Short: "Synchronize the current branch with remote and base branch",
 	Args:  cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if syncAbort && syncContinue {
@@ -91,16 +91,24 @@ var syncCmd = &cobra.Command{
 		if len(args) >= 1 {
 			cfg.Remote = args[0]
 		}
+		var targetBranch string
 		if len(args) >= 2 {
-			cfg.DefaultBranch = args[1]
+			if syncContinue || syncSkip || syncAbort {
+				return &cli.Error{
+					Message: "Cannot specify a target branch with --continue, --skip, or --abort.",
+					Hint:    "These flags operate on the in-progress sync for the current branch.",
+				}
+			}
+			targetBranch = args[1]
 		}
 
 		return workflow.Sync(run, cfg, workflow.SyncOptions{
-			Continue: syncContinue,
-			Rebase:   syncRebase,
-			Merge:    syncMerge,
-			Abort:    syncAbort,
-			Skip:     syncSkip,
+			Continue:     syncContinue,
+			Rebase:       syncRebase,
+			Merge:        syncMerge,
+			Abort:        syncAbort,
+			Skip:         syncSkip,
+			TargetBranch: targetBranch,
 		})
 	},
 }

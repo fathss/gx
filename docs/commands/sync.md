@@ -1,26 +1,32 @@
 # gx sync
 
-Synchronize the current feature branch with the configured base branch.
+Synchronize the current branch with its remote tracking branch and the configured base branch.
 
 ---
 
 ## Usage
 
 ```bash
-gx sync [<remote> [<baseBranch>]]
+gx sync [<remote> [<target_branch>]]
 gx sync [--rebase | --merge]
 gx sync --continue
 gx sync --skip
 gx sync --abort
 ```
 
-`gx sync` automates the ritual of synchronizing feature branches:
+`gx sync` automates the ritual of synchronizing branches:
 
 1. Stashes uncommitted working tree changes with label `gx-sync/<branch>/<timestamp>` (only when the tree is dirty).
 2. Fetches latest commits from `<remote>`, pruning remote-tracking refs whose remote branch is gone.
-3. Fast-forwards the local `<baseBranch>` to match `<remote>/<baseBranch>`.
-4. Records a `.git/gx-sync-state` ownership marker, then integrates updates into the current branch using either `rebase` (default) or `merge`.
-5. Restores stashed changes cleanly (the marker is cleared), or keeps both marker and stash on a conflict pause.
+3. If on a feature branch (normal sync):
+   - **Phase 1 (Remote Feature Branch)**: Reconciles with `<remote>/<current>`: fast-forwards if local is behind; rebases (or merges) if local and remote have diverged.
+   - **Phase 2 (Base Branch)**: Fast-forwards local base branch and integrates it into the current branch using either `rebase` (default) or `merge`.
+4. If on a base branch: Fast-forwards the base branch to match `<remote>/<baseBranch>`.
+5. If `<target_branch>` is specified:
+   - Blocks immediately if `<target_branch>` does not match the currently checked out branch.
+   - If it matches, synchronizes *only* with `<remote>/<target_branch>` (skips base branch reconciliation).
+6. Restores stashed changes cleanly (the marker is cleared), or keeps both marker and stash on a conflict pause.
+7. Upon successful completion on a feature branch with commits ready to push, hints `Run gx ship to push.`
 
 For state classification and recovery invariants, see the [Sync State Machine](../concepts/sync-machine.md).
 
@@ -49,11 +55,11 @@ For state classification and recovery invariants, see the [Sync State Machine](.
 gx sync
 # Stashing uncommitted changes...
 # ▸ git fetch origin
-# ▸ git checkout develop
-# ▸ git merge --ff-only origin/develop
-# ▸ git checkout feat/my-feature
-# ▸ git rebase develop
+# Fast-forwarding feat/my-feature from origin/feat/my-feature...
+# Fast-forwarding develop...
+# Rebasing onto develop...
 # Restoring stashed changes...
+# hint: Run gx ship to push.
 ```
 
 ### Sync directly on base branch (fast-forward only)
@@ -65,10 +71,24 @@ gx sync
 # ▸ git merge --ff-only origin/develop
 ```
 
-### Override remote and base branch for a single run
+### Sync only current branch with remote (skipping base branch)
 
 ```bash
-gx sync upstream main
+# While on feat/login
+gx sync origin feat/login
+# ▸ git fetch origin
+# Fast-forwarding feat/login from origin/feat/login...
+```
+
+### Accidental target branch specification is guarded
+
+```bash
+# While on feat/login
+gx sync origin feat/dashboard
+# ✗ You are currently on "feat/login", but specified "feat/dashboard".
+# hint: Switch branches first:
+# hint:   git checkout feat/dashboard
+# hint:   gx sync
 ```
 
 ### Conflict resolution workflow

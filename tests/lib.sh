@@ -89,7 +89,7 @@ setup_base_repo() {
 
     # also push feature branch ahead
     git_checkout feature/test
-    echo "other feature work" >> readme.md && git add . && git_commit -m "other feat work"
+    echo "other feature work" >> feature.txt && git add . && git_commit -m "other feat work"
     git_push
 
     # go back to test repo and write default config
@@ -291,6 +291,24 @@ assert_git_valid() {
         pass "$label"
     else
         fail "$label — repository integrity check failed"
+    fi
+}
+
+assert_file_exists() {
+    local label="$1" file="$2"
+    if [ -f "$file" ]; then
+        pass "$label"
+    else
+        fail "$label — expected file to exist: $file"
+    fi
+}
+
+assert_file_not_exists() {
+    local label="$1" file="$2"
+    if [ ! -f "$file" ]; then
+        pass "$label"
+    else
+        fail "$label — expected file not to exist: $file"
     fi
 }
 

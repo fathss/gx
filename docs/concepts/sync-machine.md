@@ -53,18 +53,23 @@ If the tree was clean, no stash exists; the ownership marker alone carries the b
 ### 1. Normal Flow (Q1 / Q2)
 
 ```
-1. Verify working tree and ensure HEAD is not detached
+1. Verify working tree, ensure HEAD is not detached, and guard target branch if specified
 2. Stash dirty working tree (gx-sync/<branch>/<timestamp>) if uncommitted changes exist
 3. git fetch <remote>
-4. If current branch == defaultBranch:
-     git merge --ff-only <remote>/<defaultBranch>
+4. If on base branch (or target-only base branch):
+     git merge --ff-only <remote>/<baseBranch>
      Restore stash (if created)
-5. If on feature branch:
-     git checkout <defaultBranch>
-     git merge --ff-only <remote>/<defaultBranch>
-     git checkout <currentBranch>
-     Apply strategy: git rebase <defaultBranch> OR git merge --no-edit <defaultBranch>
+5. If target-only mode on feature branch:
+     Reconcile with <remote>/<current> (fast-forward if behind; rebase/merge if diverged)
      Restore stash (if created)
+6. If on feature branch (normal sync):
+     Phase 1: Reconcile with <remote>/<current> (fast-forward if behind; rebase/merge if diverged)
+     Phase 2: git checkout <defaultBranch>
+              git merge --ff-only <remote>/<defaultBranch>
+              git checkout <currentBranch>
+              Apply strategy: git rebase <defaultBranch> OR git merge --no-edit <defaultBranch>
+     Restore stash (if created)
+7. Display hint: Run gx ship to push if commits are ready to publish
 ```
 
 ### 2. Conflict Handling
