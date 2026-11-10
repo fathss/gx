@@ -29,14 +29,14 @@ Keys:
   protectedBranches       Branches protected from deletion (default: main, master, develop)
 
 Examples:
-  gx config                                          Show all values
-  gx config list                                     Show all values
-  gx config remote                                   Print current remote
-  gx config remote upstream                          Set remote to upstream
-  gx config sensitivePatterns .env .gitignore           Append patterns
-  gx config sensitivePatterns .env .gitignore --overwrite  Overwrite list
-  gx config protectedBranches main release              Append branches
-  gx config protectedBranches main release --overwrite  Overwrite list`,
+  gx config                                                 Show all values
+  gx config list                                            Show all values
+  gx config remote                                          Print current remote
+  gx config remote upstream                                 Set remote to upstream
+  gx config sensitivePatterns .env .gitignore               Append patterns
+  gx config sensitivePatterns .env .gitignore --overwrite   Overwrite list
+  gx config protectedBranches main release                  Append branches
+  gx config protectedBranches main release --overwrite      Overwrite list`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		switch len(args) {

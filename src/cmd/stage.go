@@ -24,18 +24,12 @@ Scans the working tree, shows a categorized preview of modified tracked files
 and untracked files, and blocks files matching sensitive patterns (.env, *.pem, etc.)
 unless overridden with --allow-sensitive.
 
-Flags:
-  -a, --all             Stage all modified and untracked files without prompting
-  -p, --patch           Interactively select hunks to stage (git add -p)
-      --allow-sensitive Override sensitive-pattern blocking
-      --exclude <pat>   Exclude files matching glob pattern (repeatable, comma-separated)
-
 Examples:
-  gx stage                          Interactive staging with preview
-  gx stage -a                       Stage all files immediately
-  gx stage src/main.go              Stage specific files
-  gx stage -p                       Select hunks interactively
-  gx stage --exclude "*.log"        Stage excluding log files`,
+  gx stage                      Interactive staging with preview
+  gx stage -a                   Stage all files immediately
+  gx stage src/main.go          Stage specific files
+  gx stage -p                   Select hunks interactively
+  gx stage --exclude "*.log"    Stage excluding log files`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()

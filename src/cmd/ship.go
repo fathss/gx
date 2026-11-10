@@ -20,7 +20,12 @@ needed, and print the PR creation URL.
 
 Refuses to push to protected branches (main, master, develop by default).
 Detects diverged history and requires --force before force-pushing.
-Uses --force-with-lease rather than bare --force.`,
+Uses --force-with-lease rather than bare --force.
+
+Examples:
+  gx ship            Push current branch and output PR URL
+  gx ship --force    Force-push with lease after rebase or commit amend
+  gx ship --no-pr    Push without generating or printing PR URL`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
