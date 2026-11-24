@@ -47,9 +47,7 @@ source "$SCRIPT_DIR/lib.sh"
 # ======================================================================
 
 
-setup_clean_repo() {
-    cleanup_tempdir
-    setup_tempdir
+_setup_clean_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -76,6 +74,12 @@ setup_clean_repo() {
     configure_git
     git checkout develop >/dev/null 2>&1
     cd "$TEST_DIR"
+}
+
+setup_clean_repo() {
+    cleanup_tempdir
+    setup_tempdir
+    copy_template "clean" _setup_clean_repo_raw
 }
 
 # Helper: create a feature branch, push it, then merge into develop and push develop

@@ -148,19 +148,19 @@ Built-in commands (`help`, `completion`) are annotated dynamically in `sync.Once
 
 ## Runner methods
 
-| Method                                                  | Visibility                    | Use case                                                                |
-| ------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `Run(args...) error`                                    | Printed with `--verbose`      | User-visible git operations (fetch, rebase, commit, etc.)               |
-| `RunWithEnv(env, args...) error`                        | Printed with `--verbose`      | Git operations needing extra env vars (`GIT_EDITOR=true`)               |
-| `Output(args...) (string, error)`                       | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.)    |
-| `CombinedOutput(args...) (string, error)`               | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr                             |
-| `Warn(msg string)` / `Warnf(msg, hint string)`          | Via `WarnFn`                  | Emit a non-fatal warning through the wired handler                      |
-| `Success(msg string)`                                   | Via `SuccessFn`               | Emit a non-fatal success message through the wired handler              |
-| `Info(msg string)`                                      | Via `InfoFn`                  | Emit a non-fatal informational message in dim styling                   |
-| `State(msg string)`                                     | Terminal stdout / spinner     | Announce workflow state and maintain active spinner in interactive mode |
-| `StopSpinner()`                                         | Terminal stdout               | Stop and clear the active spinner                                       |
-| `StartProgress(msg string)` / `UpdateProgress(...)`     | Terminal stdout               | Manage progress state during multi-step operations                      |
-| `EndProgress(success bool, msg, hint string)`           | Terminal stdout               | Complete progress indicator with success or failure                     |
+| Method                                              | Visibility                    | Use case                                                                |
+| --------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `Run(args...) error`                                | Printed with `--verbose`      | User-visible git operations (fetch, rebase, commit, etc.)               |
+| `RunWithEnv(env, args...) error`                    | Printed with `--verbose`      | Git operations needing extra env vars (`GIT_EDITOR=true`)               |
+| `Output(args...) (string, error)`                   | Printed only with `--verbose` | Plumbing — capturing output (current branch, porcelain status, etc.)    |
+| `CombinedOutput(args...) (string, error)`           | Printed only with `--verbose` | Plumbing — capturing both stdout and stderr                             |
+| `Warn(msg string)` / `Warnf(msg, hint string)`      | Via `WarnFn`                  | Emit a non-fatal warning through the wired handler                      |
+| `Success(msg string)`                               | Via `SuccessFn`               | Emit a non-fatal success message through the wired handler              |
+| `Info(msg string)`                                  | Via `InfoFn`                  | Emit a non-fatal informational message in dim styling                   |
+| `State(msg string)`                                 | Terminal stdout / spinner     | Announce workflow state and maintain active spinner in interactive mode |
+| `StopSpinner()`                                     | Terminal stdout               | Stop and clear the active spinner                                       |
+| `StartProgress(msg string)` / `UpdateProgress(...)` | Terminal stdout               | Manage progress state during multi-step operations                      |
+| `EndProgress(success bool, msg, hint string)`       | Terminal stdout               | Complete progress indicator with success or failure                     |
 
 The `Runner` exposes handler hooks (`WarnFn`, `SuccessFn`, `InfoFn`) wired by `cmd/root.go` `initRunner`.
 
@@ -170,20 +170,20 @@ The `Runner` exposes handler hooks (`WarnFn`, `SuccessFn`, `InfoFn`) wired by `c
 
 ## Workflow files
 
-| File                               | Contents                                                                                                                                                                                |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                                                           |
-| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                                                                      |
+| File                               | Contents                                                                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                                                                  |
+| `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                                                                             |
 | `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`, `finishSync()` (automatic push after synchronization) |
-| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the ownership marker (`syncGit` seam + `prodSyncGit` adapter)                                            |
-| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspectForSync()`, `requireNoInProgress()` guard shared by save/ship/stage; marker is authoritative, stash is legacy fallback |
-| `internal/workflow/synclock.go`    | Per-worktree sync lock — `acquireSyncLock()`, stale-PID recovery; `synclock_unix.go` probes liveness, `synclock_windows.go` ages locks out                                              |
-| `internal/workflow/prompt.go`      | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr                                         |
-| `internal/workflow/stage.go`       | `Stage()` + `StageOptions` — categorized preview with status badges, sensitive check, exclude filtering, untracked prompt, hunk staging, staged summary                                  |
-| `internal/workflow/save.go`        | `Save()` + `SaveOptions` — support pre-staged commits, working tree scan, sensitive check, stage, commit summary card                                                                    |
-| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                                                                         |
-| `internal/workflow/status.go`      | `Status()` — assemble structured snapshot with status badges (upstream = configured remote via `CheckDivergence`)                                                                       |
-| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                                                                      |
+| `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the ownership marker (`syncGit` seam + `prodSyncGit` adapter)                                                   |
+| `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspectForSync()`, `requireNoInProgress()` guard shared by save/ship/stage; marker is authoritative, stash is legacy fallback      |
+| `internal/workflow/synclock.go`    | Per-worktree sync lock — `acquireSyncLock()`, stale-PID recovery; `synclock_unix.go` probes liveness, `synclock_windows.go` ages locks out                                                     |
+| `internal/workflow/prompt.go`      | `prompter` / `Confirm()` — one yes/no prompt seat over `io.Reader` (stdin / scripted reader), EOF ⇒ no, `--yes` short-circuit, prompt on stderr                                                |
+| `internal/workflow/stage.go`       | `Stage()` + `StageOptions` — categorized preview with status badges, sensitive check, exclude filtering, untracked prompt, hunk staging, staged summary                                        |
+| `internal/workflow/save.go`        | `Save()` + `SaveOptions` — support pre-staged commits, working tree scan, sensitive check, stage, commit summary card                                                                          |
+| `internal/workflow/ship.go`        | `Ship()` — protected-branch check, divergence check, push, PR-url orchestration                                                                                                                |
+| `internal/workflow/status.go`      | `Status()` — assemble structured snapshot with status badges (upstream = configured remote via `CheckDivergence`)                                                                              |
+| `internal/workflow/clean.go`       | `Clean()` — fetch → select → filter → prompt → delete, `filterBranches()`, `filterLocalBranches()`                                                                                             |
 
 ---
 
@@ -246,8 +246,19 @@ See [Sync State Machine](../concepts/sync-machine.md) for the full Q1–Q6 state
 # Single command suite
 bash tests/gx-ship-test.sh
 
-# All suites (builds gx once, reports per-suite failures)
+# Run all suites (parallel across CPU cores by default)
 bash tests/run-all.sh
+
+# Run with custom concurrency or serial mode
+bash tests/run-all.sh -j 2           # constrained concurrency (2 workers)
+bash tests/run-all.sh --serial       # sequential mode with live streaming output
+
+# Run a single suite
+bash tests/gx-sync-test.sh
+
+# Run a single targeted test within a suite (instant filter)
+bash tests/gx-sync-test.sh 05        # matches test function or label containing "05"
+TEST_FILTER=abort bash tests/gx-sync-test.sh
 ```
 
-New suites are auto-discovered — any `tests/*-test.sh` file is picked up.
+New suites are auto-discovered — any `tests/*-test.sh` file is picked up. In CI / GitHub Actions, `run-all.sh` emits collapsible log groups and workflow error annotations automatically.

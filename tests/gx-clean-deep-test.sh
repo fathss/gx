@@ -38,9 +38,7 @@ source "$SCRIPT_DIR/lib-invariants.sh"
 # Setup and assertions
 # ======================================================================
 
-setup_clean_repo() {
-    cleanup_tempdir
-    setup_tempdir
+_setup_clean_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -67,6 +65,12 @@ setup_clean_repo() {
     configure_git
     git checkout -q -B develop origin/develop
     cd "$TEST_DIR"
+}
+
+setup_clean_repo() {
+    cleanup_tempdir
+    setup_tempdir
+    copy_template "clean_deep" _setup_clean_repo_raw
 }
 
 write_config_protected() {
