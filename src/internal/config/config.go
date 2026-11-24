@@ -5,14 +5,63 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/fathss/gx/internal/cli"
 	"github.com/fathss/gx/internal/git"
 )
 
-const configDir = ".gx"
-const configFile = configDir + "/config"
+const (
+	configDirName  = ".gx"
+	configFileName = "config"
+)
+
+// FindConfigFile resolves the path to .gx/config.
+// It searches upwards from the current working directory for an existing
+// .gx/config, stopping at the root or at a Git repository boundary (.git).
+// If no existing config is found, it targets .gx/config at the nearest
+// enclosing Git repository root, or falls back to .gx/config in the current directory.
+func FindConfigFile() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return filepath.Join(configDirName, configFileName)
+	}
+	return findConfigFileFrom(dir)
+}
+
+func findConfigFileFrom(dir string) string {
+	curr := dir
+	var gitRoot string
+
+	for {
+		candidate := filepath.Join(curr, configDirName, configFileName)
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+			return candidate
+		}
+
+		if gitRoot == "" {
+			if _, err := os.Stat(filepath.Join(curr, ".git")); err == nil {
+				gitRoot = curr
+				// We reached the Git repository root. If .gx/config doesn't
+				// exist here, don't search outside the repository.
+				break
+			}
+		}
+
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		curr = parent
+	}
+
+	if gitRoot != "" {
+		return filepath.Join(gitRoot, configDirName, configFileName)
+	}
+
+	return filepath.Join(dir, configDirName, configFileName)
+}
 
 // DefaultSensitivePatterns are the sensitive file patterns written to new
 // configs by gx init. They live here, not in the git package, so the config
@@ -43,12 +92,13 @@ func Default() *Config {
 
 // ensureDir creates the config directory if it doesn't exist.
 func ensureDir() error {
-	return os.MkdirAll(configDir, 0755)
+	return os.MkdirAll(filepath.Dir(FindConfigFile()), 0755)
 }
 
 func Load() (*Config, error) {
 	cfg := Default()
 
+	configFile := FindConfigFile()
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -91,12 +141,12 @@ func Save(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFile, append(data, '\n'), 0644)
+	return os.WriteFile(FindConfigFile(), append(data, '\n'), 0644)
 }
 
 // Exists returns true if a .gx/config file exists.
 func Exists() bool {
-	_, err := os.Stat(configFile)
+	_, err := os.Stat(FindConfigFile())
 	return err == nil
 }
 
