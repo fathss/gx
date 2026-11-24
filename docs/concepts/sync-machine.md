@@ -69,7 +69,7 @@ If the tree was clean, no stash exists; the ownership marker alone carries the b
               git checkout <currentBranch>
               Apply strategy: git rebase <defaultBranch> OR git merge --no-edit <defaultBranch>
      Restore stash (if created)
-7. Display hint: Run gx ship to push if commits are ready to publish
+7. If on feature branch, push to remote (safe force-push if rebased, sets upstream if new, skipped on --no-push)
 ```
 
 ### 2. Conflict Handling

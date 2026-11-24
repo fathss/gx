@@ -18,6 +18,7 @@ type SyncOptions struct {
 	Merge        bool
 	Abort        bool
 	Skip         bool
+	NoPush       bool
 	TargetBranch string
 }
 
@@ -135,10 +136,10 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 	case q4GXRebase:
 		// Q4: gx-orchestrated rebase — --continue resumes, --skip skips, plain blocks
 		if opts.Skip {
-			return autoSkipSync(run, sessionGit, cfg)
+			return autoSkipSync(run, sessionGit, cfg, opts.NoPush)
 		}
 		if opts.Continue {
-			return autoContinueSync(run, sessionGit, cfg)
+			return autoContinueSync(run, sessionGit, cfg, opts.NoPush)
 		}
 		return &cli.Error{
 			Message: "A rebase is already in progress.",
@@ -154,7 +155,7 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 			}
 		}
 		if opts.Continue {
-			return autoContinueMergeSync(run, sessionGit, cfg)
+			return autoContinueMergeSync(run, sessionGit, cfg, opts.NoPush)
 		}
 		return &cli.Error{
 			Message: "A merge is already in progress.",
@@ -477,21 +478,74 @@ func Sync(run runner.Executor, cfg *config.Config, opts SyncOptions) error {
 		return err
 	}
 
-	// 9. Informational hint to push if on feature branch and commits are ready to ship
-	if !isProtectedBranch(cfg, current) {
-		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
-		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
-			run.Info("hint: Run gx ship to push.")
+	// 9. Push to remote if on feature branch (unless --no-push)
+	return finishSync(run, cfg, current, opts.NoPush)
+}
+
+// finishSync handles the post-sync step: pushes the synchronized feature branch
+// to remote unless --no-push is specified or the branch is protected.
+func finishSync(run runner.Executor, cfg *config.Config, current string, noPush bool) error {
+	if isProtectedBranch(cfg, current) {
+		return nil
+	}
+
+	div, divErr := git.CheckDivergence(run, cfg.Remote, current)
+	if divErr != nil {
+		return &cli.Error{
+			Message: "Failed to check divergence status.",
 		}
 	}
 
+	// Up to date with remote
+	if div.Tracking && div.Ahead == 0 && div.Behind == 0 {
+		return nil
+	}
+
+	if noPush {
+		if !div.Tracking || div.Ahead > 0 {
+			run.Info("hint: Run gx ship to push.")
+		}
+		return nil
+	}
+
+	var pushFn func() error
+	switch {
+	case !div.Tracking:
+		pushFn = func() error {
+			return git.PushSetUpstream(run, cfg.Remote, current)
+		}
+	case div.Behind > 0 && div.Ahead == 0:
+		return nil
+	case div.Behind > 0 && div.Ahead > 0:
+		pushFn = func() error {
+			return git.PushForceWithLease(run, cfg.Remote, current)
+		}
+	default:
+		pushFn = func() error {
+			return git.Push(run, cfg.Remote, current)
+		}
+	}
+
+	run.State(fmt.Sprintf("Pushing %s to %s...", current, cfg.Remote))
+	if err := pushFn(); err != nil {
+		hint := "Check the error above."
+		if git.IsNonFastForward(err) {
+			hint = "New commits were pushed to the remote while syncing. Run gx sync again to incorporate them, or inspect git log."
+		}
+		return &cli.Error{
+			Message: "Push rejected by remote.",
+			Hint:    hint,
+		}
+	}
+
+	run.Success(fmt.Sprintf("Pushed %s to %s", current, cfg.Remote))
 	return nil
 }
 
 // autoContinueSync continues an in-progress rebase. When a gx stash is present
 // (from a previous gx sync run), the resumed session commits it after the
 // rebase completes. Only called for gx-orchestrated rebases (Q4).
-func autoContinueSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) error {
+func autoContinueSync(run runner.Executor, sessionGit syncGit, cfg *config.Config, noPush bool) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		run.Info(fmt.Sprintf("Continuing rebase — applying %s...", info))
 	} else {
@@ -540,18 +594,15 @@ func autoContinueSync(run runner.Executor, sessionGit syncGit, cfg *config.Confi
 	}
 
 	current, err := git.CurrentBranch(run)
-	if err == nil && !isProtectedBranch(cfg, current) {
-		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
-		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
-			run.Info("hint: Run gx ship to push.")
-		}
+	if err != nil {
+		return nil
 	}
-	return nil
+	return finishSync(run, cfg, current, noPush)
 }
 
 // autoContinueMergeSync continues a paused merge. Behaves like autoContinueSync
 // but for merges: runs git merge --continue, then commits the resumed session.
-func autoContinueMergeSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) error {
+func autoContinueMergeSync(run runner.Executor, sessionGit syncGit, cfg *config.Config, noPush bool) error {
 	run.Info("Continuing merge...")
 
 	if err := git.MergeContinue(run); err != nil {
@@ -584,13 +635,10 @@ func autoContinueMergeSync(run runner.Executor, sessionGit syncGit, cfg *config.
 	}
 
 	current, err := git.CurrentBranch(run)
-	if err == nil && !isProtectedBranch(cfg, current) {
-		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
-		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
-			run.Info("hint: Run gx ship to push.")
-		}
+	if err != nil {
+		return nil
 	}
-	return nil
+	return finishSync(run, cfg, current, noPush)
 }
 
 // abortWithStash aborts an in-progress operation (rebase or merge) via the
@@ -610,7 +658,7 @@ func abortWithStash(run runner.Executor, sessionGit syncGit, abortFn func(runner
 // autoSkipSync skips the currently-applying commit during a gx-orchestrated
 // rebase. If the rebase is still in progress afterwards, the session stays
 // paused (stash kept). When the rebase finished, the session commits.
-func autoSkipSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) error {
+func autoSkipSync(run runner.Executor, sessionGit syncGit, cfg *config.Config, noPush bool) error {
 	if info := git.CurrentRebasePatchInfo(run); info != "" {
 		run.Info(fmt.Sprintf("Skipping commit %s...", info))
 	} else {
@@ -646,11 +694,8 @@ func autoSkipSync(run runner.Executor, sessionGit syncGit, cfg *config.Config) e
 	}
 
 	current, err := git.CurrentBranch(run)
-	if err == nil && !isProtectedBranch(cfg, current) {
-		div, divErr := git.CheckDivergence(run, cfg.Remote, current)
-		if divErr == nil && (!div.Tracking || div.Ahead > 0) {
-			run.Info("hint: Run gx ship to push.")
-		}
+	if err != nil {
+		return nil
 	}
-	return nil
+	return finishSync(run, cfg, current, noPush)
 }
