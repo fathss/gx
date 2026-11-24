@@ -8,9 +8,9 @@ Synchronize the current branch with its remote tracking branch and the configure
 
 ```bash
 gx sync [<remote> [<target_branch>]]
-gx sync [--rebase | --merge]
-gx sync --continue
-gx sync --skip
+gx sync [--rebase | --merge] [--no-push]
+gx sync --continue [--no-push]
+gx sync --skip [--no-push]
 gx sync --abort
 ```
 
@@ -24,9 +24,9 @@ gx sync --abort
 4. If on a base branch: Fast-forwards the base branch to match `<remote>/<baseBranch>`.
 5. If `<target_branch>` is specified:
    - Blocks immediately if `<target_branch>` does not match the currently checked out branch.
-   - If it matches, synchronizes *only* with `<remote>/<target_branch>` (skips base branch reconciliation).
+   - If it matches, synchronizes _only_ with `<remote>/<target_branch>` (skips base branch reconciliation).
 6. Restores stashed changes cleanly (the marker is cleared), or keeps both marker and stash on a conflict pause.
-7. Upon successful completion on a feature branch with commits ready to push, hints `Run gx ship to push.`
+7. If on a feature branch (non-protected), pushes the synchronized branch to `<remote>` (fast-forward if ahead, safe force-push with `--force-with-lease` if diverged after rebase, `-u` if untracked), unless `--no-push` is specified.
 
 For state classification and recovery invariants, see the [Sync State Machine](../concepts/sync-machine.md).
 
@@ -39,6 +39,7 @@ For state classification and recovery invariants, see the [Sync State Machine](.
 | `--continue`      | Resume a paused rebase or merge after conflicts have been resolved and staged. |
 | `--skip`          | Skip the current commit during a paused rebase.                                |
 | `--abort`         | Abort a paused rebase or merge and restore stashed working directory changes.  |
+| `--no-push`       | Skip pushing to remote after synchronizing.                                    |
 | `--rebase`        | Force rebase strategy for this run (overrides config).                         |
 | `--merge`         | Force merge strategy for this run (overrides config).                          |
 | `--verbose`, `-v` | Show underlying git plumbing commands.                                         |
@@ -49,10 +50,24 @@ For state classification and recovery invariants, see the [Sync State Machine](.
 
 ## Examples
 
-### Standard feature branch sync
+### Standard feature branch sync (sync and push)
 
 ```bash
 gx sync
+# Stashing uncommitted changes...
+# ▸ git fetch origin
+# Fast-forwarding feat/my-feature from origin/feat/my-feature...
+# Fast-forwarding develop...
+# Rebasing onto develop...
+# Restoring stashed changes...
+# Pushing feat/my-feature to origin...
+# Pushed feat/my-feature to origin
+```
+
+### Sync without pushing (`--no-push`)
+
+```bash
+gx sync --no-push
 # Stashing uncommitted changes...
 # ▸ git fetch origin
 # Fast-forwarding feat/my-feature from origin/feat/my-feature...
@@ -129,5 +144,6 @@ gx sync --abort
 | Concurrent gx sync             | A per-worktree lock blocks the second run: `Another gx sync is already running...` No repository mutation occurs.                                                                                                           |
 | Remote offline / fetch fails   | Error reported with hint to check network or `git remote -v`. Working tree is untouched.                                                                                                                                    |
 | Base branch missing locally    | Fails with a hint to create the branch, e.g. `git checkout -b develop origin/develop`.                                                                                                                                      |
-| Target branch mismatch         | If `<target_branch>` does not match the currently checked-out branch, refuses immediately with a hint to `git checkout <target_branch>`.                                                    |
-| Incompatible flags             | Passing conflicting flags (e.g. `--abort` and `--continue`, `--rebase` and `--merge`, or `<target_branch>` with `--continue`/`--abort`) exits with an immediate usage error.                 |
+| Target branch mismatch         | If `<target_branch>` does not match the currently checked-out branch, refuses immediately with a hint to `git checkout <target_branch>`.                                                                                    |
+| Incompatible flags             | Passing conflicting flags (e.g. `--abort` and `--continue`, `--abort` and `--no-push`, `--rebase` and `--merge`, or `<target_branch>` with `--continue`/`--abort`) exits with an immediate usage error.                     |
+| Rejected push (non-fast-forward)| If new commits were pushed to the remote while syncing: `Push rejected by remote.` with hint to run `gx sync` again, or inspect `git log`.                                                                                 |

@@ -34,14 +34,18 @@ Persistent configuration for `gx` is stored at `.gx/config` relative to the repo
    - Central guard `RequireConfig()` blocks operations when `.gx/config` is missing, prompting the user to run `gx init`.
    - Commands annotated with `no_config` (`gx init`, `gx config`) can execute without the file.
 
-2. **Loading (`Load`)**:
+2. **Discovery & Resolution**:
+   - Discovers `.gx/config` by searching upward from the current working directory to the Git repository root (`.git`), allowing `gx` commands and `gx config` to run seamlessly from child directories.
+   - When run from a child directory without an existing configuration, `gx init` targets `.gx/config` at the enclosing Git repository root rather than the child directory.
+
+3. **Loading (`Load`)**:
    - Starts with `Default()`.
    - Reads `.gx/config`. Missing file returns defaults with no error.
    - Syntax errors in JSON return a clear `cli.Error` with recovery hints.
    - Values outside allowed domains (e.g. invalid `syncStrategy`) log a warning to stderr and reset to `"rebase"`.
    - Any empty scalar or list field falls back to its default value from `Default()`.
 
-3. **Precedence**:
+4. **Precedence**:
    - Command-line flags (e.g. `--remote`, `--branch`, `--rebase`, `--merge`) override configuration for that invocation.
    - Positional arguments (e.g. `gx sync origin develop`) override configuration for that invocation.
    - `.gx/config` values apply when flags/arguments are not passed.

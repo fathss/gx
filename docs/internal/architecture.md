@@ -70,7 +70,8 @@ Each layer has a specific job and **must not** reach across boundaries.
 
 ### `internal/config/`
 
-- Loads and saves `.gx/config` from the current directory
+- Discovers `.gx/config` by traversing upwards to the Git repository root via `FindConfigFile()`, supporting invocation from child directories
+- Loads and saves `.gx/config` at the resolved path
 - Key registry in `registry.go` defines key definitions, ordering (`Keys()`), and validation
 - Falls back to defaults if the file is missing
 - Provides `Set`, `Get`, `Exists`, and `Default()` helpers, plus the defaults `DefaultSensitivePatterns` and `DefaultProtectedBranches`
@@ -173,7 +174,7 @@ The `Runner` exposes handler hooks (`WarnFn`, `SuccessFn`, `InfoFn`) wired by `c
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `internal/workflow/guard.go`       | `RequireRepository()`, `RequireConfig()` — central pre-flight                                                                                                                           |
 | `internal/workflow/init.go`        | `Init()` — auto-detect remote/branch, write config                                                                                                                                      |
-| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`                                                 |
+| `internal/workflow/sync.go`        | `Sync()` + `SyncOptions` — state machine (Q1–Q6), `autoContinueSync()`, `autoContinueMergeSync()`, `abortWithStash()`, `autoSkipSync()`, `finishSync()` (automatic push after synchronization) |
 | `internal/workflow/syncsession.go` | Sync session — `begin()` / `resume()` / `settle()` own the stash lifecycle and the ownership marker (`syncGit` seam + `prodSyncGit` adapter)                                            |
 | `internal/workflow/repostate.go`   | Q-table classification — `qVerdict` (Q1–Q6), `classify()`, `inspectForSync()`, `requireNoInProgress()` guard shared by save/ship/stage; marker is authoritative, stash is legacy fallback |
 | `internal/workflow/synclock.go`    | Per-worktree sync lock — `acquireSyncLock()`, stale-PID recovery; `synclock_unix.go` probes liveness, `synclock_windows.go` ages locks out                                              |

@@ -116,7 +116,7 @@ test_06_workflow_ship_notification() {
     run_gx ship --no-pr
     assert_exit_code "gx ship exits 0" 0
     assert_output_contains "ship shows state" "Pushing feature/test to origin..."
-    assert_output_contains "ship shows Pushed" "Pushed feature/test → origin"
+    assert_output_contains "ship shows Pushed" "Pushed feature/test to origin"
     assert_output_not_contains "no checkmark" "✓"
 }
 

@@ -1360,30 +1360,69 @@ test_44_diverged_feature_auto_rebase() {
 }
 
 # ======================================================================
-# TEST 45 — ship hint when commits ready to publish
+# TEST 45 — push when commits ready to publish
 # ======================================================================
-test_45_ship_hint_when_ahead() {
+test_45_push_when_ahead() {
     echo ""
-    echo "=== Test 45: ship hint when commits ready to publish ==="
+    echo "=== Test 45: push when commits ready to publish ==="
     cleanup_tempdir
     setup_tempdir
     setup_base_repo
 
     cd "$TEST_DIR"
     git_checkout feature/test
-    echo "ship hint work" > shiptest.txt
-    git add shiptest.txt && git_commit -m "commit for ship hint"
+    echo "push work" > pushtest.txt
+    git add pushtest.txt && git_commit -m "commit for push"
 
     run_gx sync
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "ship hint shown" "hint: Run gx ship to push."
+    assert_output_contains "push message shown" "Pushed feature/test"
 
-    # On base branch (develop), ship hint should NOT be shown
+    # On base branch (develop), push should NOT be performed
     git_checkout develop
     run_gx sync
     assert_exit_code "exits 0" 0
-    assert_output_not_contains "no ship hint on base" "Run gx ship to push"
+    assert_output_not_contains "no push on base" "Pushed develop"
+}
+
+# ======================================================================
+# TEST 46 — --no-push flag skips push and hints ship
+# ======================================================================
+test_46_no_push_flag() {
+    echo ""
+    echo "=== Test 46: --no-push skips push and hints ship ==="
+    cleanup_tempdir
+    setup_tempdir
+    setup_base_repo
+
+    cd "$TEST_DIR"
+    git_checkout feature/test
+    echo "no push work" > nopushtest.txt
+    git add nopushtest.txt && git_commit -m "commit for no push"
+
+    run_gx sync --no-push
+
+    assert_exit_code "exits 0" 0
+    assert_output_contains "ship hint shown on --no-push" "hint: Run gx ship to push."
+    assert_output_not_contains "no push output on --no-push" "Pushed feature/test"
+}
+
+# ======================================================================
+# TEST 47 — --abort and --no-push mutual exclusion
+# ======================================================================
+test_47_abort_no_push_exclusive() {
+    echo ""
+    echo "=== Test 47: --abort and --no-push mutual exclusion ==="
+    cleanup_tempdir
+    setup_tempdir
+    setup_base_repo
+
+    cd "$TEST_DIR"
+    run_gx sync --abort --no-push
+
+    assert_exit_code "exits non-zero" 1
+    assert_output_contains "mutual exclusion error" "Cannot specify both --abort and --no-push."
 }
 
 # ======================================================================
@@ -1442,7 +1481,9 @@ run_test test_41_abort_and_continue_exclusive "Test 41: --abort + --continue exc
 run_test test_42_sync_target_branch_match "Test 42: sync target branch match"
 run_test test_43_target_only_skips_base "Test 43: target-only skips base branch"
 run_test test_44_diverged_feature_auto_rebase "Test 44: diverged feature auto-rebase"
-run_test test_45_ship_hint_when_ahead "Test 45: ship hint when ahead"
+run_test test_45_push_when_ahead "Test 45: push when ahead"
+run_test test_46_no_push_flag "Test 46: --no-push flag"
+run_test test_47_abort_no_push_exclusive "Test 47: --abort and --no-push exclusive"
 
 echo ""
 print_test_summary

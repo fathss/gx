@@ -14,6 +14,7 @@ var (
 	syncMerge    bool
 	syncAbort    bool
 	syncSkip     bool
+	syncNoPush   bool
 )
 
 var syncCmd = &cobra.Command{
@@ -24,6 +25,7 @@ var syncCmd = &cobra.Command{
 Executes a safe two-phase synchronization:
   1. Reconciles the current branch with its remote counterpart
   2. Fast-forwards the local base branch and integrates it (rebase or merge)
+  3. Pushes the synchronized feature branch to remote (unless --no-push)
 
 If a target branch is specified, gx sync verifies that it matches the currently
 checked-out branch and syncs only with that remote branch.
@@ -31,7 +33,8 @@ checked-out branch and syncs only with that remote branch.
 Uncommitted working tree changes are automatically stashed and restored.
 
 Examples:
-  gx sync                       Sync with remote feature branch then base branch
+  gx sync                       Sync with remote feature branch then base branch and push
+  gx sync --no-push             Sync without pushing to remote
   gx sync origin                Sync using a specific remote
   gx sync origin feat/login     Sync only with remote tracking branch
   gx sync --rebase              Force rebase strategy (overrides config)
@@ -44,6 +47,13 @@ Examples:
 			return &cli.Error{
 				Message: "Cannot specify both --abort and --continue.",
 				Hint:    "Choose one action.",
+			}
+		}
+
+		if syncAbort && syncNoPush {
+			return &cli.Error{
+				Message: "Cannot specify both --abort and --no-push.",
+				Hint:    "Abort cancels the in-progress operation and does not push.",
 			}
 		}
 
@@ -127,6 +137,7 @@ Examples:
 			Merge:        syncMerge,
 			Abort:        syncAbort,
 			Skip:         syncSkip,
+			NoPush:       syncNoPush,
 			TargetBranch: targetBranch,
 		})
 	},
@@ -139,4 +150,5 @@ func init() {
 	syncCmd.Flags().BoolVar(&syncMerge, "merge", false, "use merge strategy (overrides config)")
 	syncCmd.Flags().BoolVar(&syncAbort, "abort", false, "abort a paused sync (rebase or merge)")
 	syncCmd.Flags().BoolVar(&syncSkip, "skip", false, "skip the current commit during --continue (rebase only)")
+	syncCmd.Flags().BoolVar(&syncNoPush, "no-push", false, "skip pushing to remote after synchronizing")
 }

@@ -64,8 +64,9 @@ test_01_first_push() {
     run_gx ship
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "push succeeded" "Pushed"
-assert_output_contains "host undetected" "Could not detect"
+    assert_output_contains "push succeeded" "Pushed feat/new-branch to origin"
+    assert_output_not_contains "no arrow in pushed message" "→ origin"
+    assert_output_contains "host undetected" "Could not detect"
 	assert_branch "stays on branch" "feat/new-branch"
 	assert_clean "working tree clean"
 	assert_git_valid "repo integrity"
@@ -88,7 +89,8 @@ test_02_subsequent_push() {
 	run_gx ship
 
 	assert_exit_code "exits 0" 0
-	assert_output_contains "push succeeded" "Pushed"
+	assert_output_contains "push succeeded" "Pushed feature/test to origin"
+	assert_output_not_contains "no arrow in pushed message" "→ origin"
 	assert_output_contains "host undetected" "Could not detect"
     assert_branch "stays on branch" "feature/test"
     assert_clean "working tree clean"
@@ -312,6 +314,33 @@ test_12_behind_only() {
 }
 
 # ======================================================================
+# TEST 13 — PR URL formatting with detected forge
+# ======================================================================
+test_13_pr_url_forge() {
+    cleanup_tempdir
+    setup_tempdir
+    setup_ship_repo
+
+    cd "$TEST_DIR"
+    git_fetch origin feature/test
+    git rebase origin/feature/test
+    echo "forge pr work" >> readme.md && git add . && git_commit -m "forge pr work"
+
+    # Route SSH to local origin bare repo so git fetch and git push succeed with forge URL
+    export GIT_SSH_COMMAND="sh -c 'if echo \"\$*\" | grep -q upload-pack; then git-upload-pack \"$ORIGIN_DIR\"; else git-receive-pack \"$ORIGIN_DIR\"; fi' --"
+    git config remote.origin.url "git@bitbucket.org:owner/repo.git"
+
+    run_gx ship
+    unset GIT_SSH_COMMAND
+
+    assert_exit_code "exits 0" 0
+    assert_output_contains "push succeeded with 'to'" "Pushed feature/test to origin"
+    assert_output_not_contains "no arrow in pushed message" "→ origin"
+    assert_output_contains "pr link line format" "  Pull Request: https://bitbucket.org/owner/repo/pull-requests/new?source=feature/test&dest=develop"
+    assert_output_not_contains "no arrow in pr url" "→ https://"
+}
+
+# ======================================================================
 # Run all tests
 # ======================================================================
 build_gx
@@ -328,6 +357,7 @@ run_test test_09_no_config "Test 09: no .gx/config blocked"
 run_test test_10_rebase_in_progress "Test 10: rebase in progress blocked"
 run_test test_11_merge_in_progress "Test 11: merge in progress blocked"
 run_test test_12_behind_only "Test 12: behind-only blocked"
+run_test test_13_pr_url_forge "Test 13: PR URL formatting with detected forge"
 
 print_test_summary
 [ "$TEST_FAIL" -eq 0 ]

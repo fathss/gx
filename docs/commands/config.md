@@ -75,6 +75,7 @@ gx config protectedBranches main release --overwrite
 
 | Scenario                     | Behavior & Recovery                                                                                                |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Subdirectory invocation      | Traverses parent directories to discover `.gx/config` at the repository root; reads and writes apply to root config. |
 | Outside a Git repository     | Blocked by pre-flight guard: `Not inside a Git repository.`                                                        |
 | Missing `.gx/config` file    | Allowed. `gx config` can read default values and creates `.gx/config` upon setting any value.                      |
 | Unknown key                  | Setting or reading an unrecognized key returns an error: `unknown config key: <key>`.                              |

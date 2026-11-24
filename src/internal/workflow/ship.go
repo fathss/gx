@@ -109,7 +109,7 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 		}
 	}
 
-	run.Success(fmt.Sprintf("Pushed %s → %s", current, cfg.Remote))
+	run.Success(fmt.Sprintf("Pushed %s to %s", current, cfg.Remote))
 
 	// 6. PR URL (unless --no-pr)
 	if noPR {
@@ -137,7 +137,7 @@ func Ship(run runner.Executor, cfg *config.Config, force bool, noPR bool) error 
 	if prURL == "" {
 		prURL = f.PRCreateURL(cfg.DefaultBranch, current)
 	}
-	fmt.Printf("→ %s\n", prURL)
+	fmt.Printf("  Pull Request: %s\n", prURL)
 
 	return nil
 }

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-24
+
+### Added
+
+- **Automatic Remote Push in `gx sync`**:
+  - Automatically pushes the synchronized feature branch to `<remote>` after Phase 2 (fast-forwards if ahead, safe force-pushes with `--force-with-lease` if diverged after rebase, sets upstream `-u` if untracked).
+  - Skips pushing when on a base/protected branch or when up to date with remote.
+  - Added `--no-push` flag to `gx sync` (and `--continue` / `--skip`) to bypass pushing to remote and retain the `hint: Run gx ship to push.` prompt.
+  - Added mutual exclusion guard blocking `--abort` and `--no-push` simultaneously.
+- **Repository Root Config Discovery (`FindConfigFile`)**:
+  - Automatically traverses parent directories upwards from the current working directory to locate `.gx/config` or the enclosing Git repository root (`.git`).
+  - Enables `gx` commands and `gx config` reads/writes to run seamlessly from child directories while targeting the root configuration.
+  - Directs `gx init` executed from child directories to create `.gx/config` at the enclosing Git repository root rather than the subdirectory.
+
+### Changed
+
+- **`gx ship` Output Formatting**:
+  - Standardized push success message format to `Pushed <branch> to <remote>` (replacing `Pushed <branch> → <remote>`).
+  - Standardized Pull Request creation URL display with indented label `  Pull Request: <url>` (replacing `→ <url>`).
+- **`gx sync` Push Rejection Hint**:
+  - Improved actionable hint when remote rejects a push during sync (`New commits were pushed to the remote while syncing. Run gx sync again, or inspect git log.`).
+
 ## 0.3.0 - 2026-11-10
 
 ### Added

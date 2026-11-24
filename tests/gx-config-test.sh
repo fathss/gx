@@ -215,6 +215,80 @@ test_08_defaults_without_config() {
 }
 
 # ======================================================================
+# TEST 09 — success: read and write config from child folder
+# ======================================================================
+test_09_child_folder_get_and_set() {
+    echo ""
+    echo "=== Test 09: success — read and write config from child folder ==="
+    cleanup_tempdir
+    setup_config_repo
+
+    # Set root config
+    cd "$TEST_DIR"
+    run_gx config remote origin-root
+
+    # Create nested child folders
+    mkdir -p "$TEST_DIR/sub1/sub2/sub3"
+
+    # Read config from deep child folder
+    GX_RUN_DIR="$TEST_DIR/sub1/sub2/sub3" run_gx config remote
+
+    assert_exit_code "get remote from child exits 0" 0
+    assert_output_contains "reads root remote" "origin-root"
+
+    # Write config from child folder
+    GX_RUN_DIR="$TEST_DIR/sub1/sub2/sub3" run_gx config remote updated-from-child
+
+    assert_exit_code "set remote from child exits 0" 0
+
+    # Verify root config was updated
+    run_gx config remote
+    assert_output_contains "root config updated" "updated-from-child"
+
+    # Verify no .gx was created in child folders
+    if [ -d "$TEST_DIR/sub1/.gx" ] || [ -d "$TEST_DIR/sub1/sub2/.gx" ] || [ -d "$TEST_DIR/sub1/sub2/sub3/.gx" ]; then
+        echo "FAIL: .gx directory was created inside a child folder"
+        TEST_FAIL=$((TEST_FAIL + 1))
+    fi
+}
+
+# ======================================================================
+# TEST 10 — success: gx init from child folder targets repo root
+# ======================================================================
+test_10_child_folder_init() {
+    echo ""
+    echo "=== Test 10: success — gx init from child folder targets repo root ==="
+    cleanup_tempdir
+    setup_config_repo
+
+    cd "$TEST_DIR"
+    rm -rf "$TEST_DIR/.gx"
+
+    mkdir -p "$TEST_DIR/pkg/api"
+
+    # Run init from child folder
+    GX_RUN_DIR="$TEST_DIR/pkg/api" run_gx init origin develop
+
+    assert_exit_code "init from child exits 0" 0
+
+    # Verify .gx/config exists at repo root
+    if [ ! -f "$TEST_DIR/.gx/config" ]; then
+        echo "FAIL: .gx/config was not created at repo root"
+        TEST_FAIL=$((TEST_FAIL + 1))
+    fi
+
+    # Verify no .gx was created in pkg/ or pkg/api/
+    if [ -d "$TEST_DIR/pkg/.gx" ] || [ -d "$TEST_DIR/pkg/api/.gx" ]; then
+        echo "FAIL: .gx directory was created inside a child folder"
+        TEST_FAIL=$((TEST_FAIL + 1))
+    fi
+
+    # Reading config from child folder finds root config
+    GX_RUN_DIR="$TEST_DIR/pkg/api" run_gx config remote
+    assert_output_contains "child reads remote" "origin"
+}
+
+# ======================================================================
 # RUN ALL
 # ======================================================================
 cleanup_tempdir
@@ -234,6 +308,8 @@ run_test test_05_sensitive_overwrite "Test 05: success — overwrite sensitivePa
 run_test test_06_overwrite_no_patterns "Test 06: block — --overwrite with no patterns"
 run_test test_07_config_list "Test 07: success — gx config --list"
 run_test test_08_defaults_without_config "Test 08: success — default values without config"
+run_test test_09_child_folder_get_and_set "Test 09: success — child folder get and set"
+run_test test_10_child_folder_init "Test 10: success — child folder init"
 
 echo ""
 print_test_summary

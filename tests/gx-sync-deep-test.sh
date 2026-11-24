@@ -189,7 +189,7 @@ test_s01_multi_commit() {
         "feature_multi_local_two.txt" "local two"
     assert_no_gx_stash "no gx stash left"
     assert_stash_count "no stash entries" 0
-    assert_origin_refs_unchanged "sync does not push"
+    assert_branch_equals_remote "sync pushes rebased branch to remote" "feature/multi" "origin/feature/multi"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
     assert_exit_output_consistent "exit/output consistent"
