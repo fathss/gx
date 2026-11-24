@@ -41,8 +41,8 @@ gx ship [--force] [--no-pr]
 gx ship
 # ▸ git fetch origin
 # ▸ git push origin feat/login
-# ✔ Pushed feat/login → origin
-# → https://github.com/org/repo/compare/main...feat/login?expand=1
+# Pushed feat/login to origin
+#   Pull Request: https://github.com/org/repo/compare/main...feat/login?expand=1
 ```
 
 ### First-time branch push
@@ -51,8 +51,8 @@ gx ship
 gx ship
 # ▸ git fetch origin
 # ▸ git push -u origin feat/new-feature
-# ✔ Pushed feat/new-feature → origin
-# → https://github.com/org/repo/compare/main...feat/new-feature?expand=1
+# Pushed feat/new-feature to origin
+#   Pull Request: https://github.com/org/repo/compare/main...feat/new-feature?expand=1
 ```
 
 ### Force push after rebase or commit amend
@@ -61,8 +61,8 @@ gx ship
 gx ship --force
 # ▸ git fetch origin
 # ▸ git push --force-with-lease origin feat/login
-# ✔ Pushed feat/login → origin
-# → https://github.com/org/repo/pull/42
+# Pushed feat/login to origin
+#   Pull Request: https://github.com/org/repo/pull/42
 ```
 
 ---
