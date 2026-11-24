@@ -146,8 +146,35 @@ test_07_workflow_clean_notification() {
 
     run_gx clean --yes
     assert_exit_code "gx clean exits 0" 0
-    assert_output_contains "clean shows Pruned" "Pruned 0 branches."
+    assert_output_contains "clean shows no branches to prune" "No branches to prune."
     assert_output_not_contains "no checkmark" "✓"
+}
+
+# ======================================================================
+# TEST 08 — Remote operations stop spinner and preserve git error output
+# ======================================================================
+test_08_remote_op_preserves_error() {
+    echo ""
+    echo "=== Test 08: Remote operations stop spinner and preserve git error output ==="
+    cleanup_tempdir
+    setup_tempdir
+    mkdir -p "$TEST_DIR"
+    cd "$TEST_DIR"
+    git init -b develop 2>/dev/null || git init 2>/dev/null
+    configure_git
+    git checkout -b develop 2>/dev/null || true
+    echo "init" > file.txt && git add file.txt && git_commit -m "init"
+
+    write_config "develop" "origin" "rebase"
+    GX_RUN_DIR="$TEST_DIR"
+
+    # Set up an invalid remote URL that causes fetch to fail
+    git remote add origin "http://127.0.0.1:9999/nonexistent.git"
+
+    run_gx sync
+    assert_exit_code "sync exits non-zero on unreachable remote" 1
+    assert_output_contains "shows git failure reason" "Failed to connect"
+    assert_output_contains "shows friendly failure" "Failed to fetch remote."
 }
 
 # ======================================================================
@@ -170,6 +197,7 @@ run_test test_04_runner_state "Test 04: Runner State outputs state message"
 run_test test_05_verbose_preserves_git_header "Test 05: Verbose mode preserves '▸ git ...' header"
 run_test test_06_workflow_ship_notification "Test 06: Workflow ship outputs preferred states and no symbols"
 run_test test_07_workflow_clean_notification "Test 07: Workflow clean outputs clean notification without symbols"
+run_test test_08_remote_op_preserves_error "Test 08: Remote operations stop spinner and preserve git error output"
 
 echo ""
 print_test_summary

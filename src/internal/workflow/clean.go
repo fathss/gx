@@ -77,7 +77,7 @@ func Clean(run runner.Executor, cfg *config.Config, remote, yes bool) error {
 	totalCandidates := len(filteredLocal) + len(remoteToDelete)
 	if totalCandidates == 0 {
 		run.StopSpinner()
-		run.Success("Pruned 0 branches.")
+		run.Success("No branches to prune.")
 		return nil
 	}
 

@@ -27,7 +27,7 @@ source "$SCRIPT_DIR/lib.sh"
 # C14  SPEC              dirty working tree             gx clean          prunes branches, dirty files untouched, exit 0     docs/commands/clean.md#pre-flight
 # C15  SPEC              outside a git repository       gx clean          exit 1, reports not inside a Git repository        docs/commands/clean.md#pre-flight
 # C16  SPEC              missing .gx/config             gx clean          exit 1, hint to run gx init                        docs/commands/clean.md#pre-flight
-# C17  SPEC              no branches to prune           gx clean          exits 0, reports "Pruned 0 branches."              docs/commands/clean.md#edge-cases
+# C17  SPEC              no branches to prune           gx clean          exits 0, reports "No branches to prune."            docs/commands/clean.md#edge-cases
 # C18  SPEC              <remote>/HEAD symbolic ref     gx clean          symbolic ref not pruned or corrupted, exit 0       docs/commands/clean.md#candidate-selection
 # C19  SPEC              remote fetch fails             gx clean          exit 1, reports fetch failure, repo untouched      docs/commands/clean.md#edge-cases
 # C20  INVARIANT         any repository state           gx clean          no commits lost, repo intact                       docs/commands/clean.md#usage
@@ -695,7 +695,7 @@ test_17_nothing_to_prune() {
     run_gx clean
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "reports Pruned 0" "Pruned 0"
+    assert_output_contains "reports no branches to prune" "No branches to prune"
     assert_git_valid "repo integrity"
     assert_no_commits_lost "no commits lost"
     assert_exit_output_consistent "exit output consistent"

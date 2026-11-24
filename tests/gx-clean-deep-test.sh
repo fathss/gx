@@ -31,7 +31,7 @@ source "$SCRIPT_DIR/lib-invariants.sh"
 # C13  SPEC              remote branch already deleted remotely  gx clean --yes --remote   prune stale tracking ref via fetch, exit 0, no failure   commands/clean.md#edge-cases
 # C14  SPEC              unmerged remote branch                 gx clean --yes --remote   remote branch kept, exit 0                                  commands/clean.md#candidate-selection
 # C15  INVARIANT         repeat after a successful clean        gx clean --yes twice      second run stays safe; may re-prune re-created tracking ref (safety)
-# C16  SPEC              nothing merged                         gx clean --yes            "Pruned 0", no prompt, exit 0                               commands/clean.md#edge-cases
+# C16  SPEC              nothing merged                         gx clean --yes            "No branches to prune", no prompt, exit 0                   commands/clean.md#edge-cases
 # ======================================================================
 
 # ======================================================================
@@ -214,7 +214,7 @@ test_c02_current_tracking() {
     assert_local_branch_exists "current local branch kept" "feature/current"
     assert_remote_tracking_exists "origin/current tracking kept without --remote" "feature/current"
     assert_remote_branch_exists "remote branch kept without --remote" "feature/current"
-    assert_output_contains "reports zero pruned" "Pruned 0"
+    assert_output_contains "reports zero pruned" "No branches to prune"
     assert_origin_refs_unchanged "remote refs untouched"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
@@ -254,7 +254,7 @@ test_c03_local_ahead() {
     assert_local_branch_exists "local unmerged work kept" "feature/ahead"
     assert_remote_tracking_exists "merged tracking kept without --remote" "feature/ahead"
     assert_remote_branch_exists "remote branch kept without --remote" "feature/ahead"
-    assert_output_contains "reports zero pruned" "Pruned 0"
+    assert_output_contains "reports zero pruned" "No branches to prune"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
     assert_exit_output_consistent "exit/output consistent"
@@ -496,7 +496,7 @@ test_c12_worktree_branch() {
     assert_remote_tracking_exists "tracking ref kept without --remote" "feature/worktree"
     assert_remote_branch_exists "remote branch kept without --remote" "feature/worktree"
     assert_output_contains "worktree skip explained" "worktree"
-    assert_output_contains "reports zero pruned" "Pruned 0"
+    assert_output_contains "reports zero pruned" "No branches to prune"
     assert_output_not_contains "local branch not deleted" "Deleted branch feature/worktree"
     if [ -d "$TEST_ROOT/wt" ]; then
         pass "worktree still present"
@@ -557,7 +557,7 @@ test_c14_unmerged_remote_kept() {
     run_gx clean --yes --remote
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "nothing pruned" "Pruned 0"
+    assert_output_contains "nothing pruned" "No branches to prune"
     assert_local_branch_exists "local unmerged kept" "feature/unmerged"
     assert_remote_tracking_exists "tracking kept" "feature/unmerged"
     assert_remote_branch_exists "remote unmerged kept" "feature/unmerged"
@@ -590,7 +590,7 @@ test_c15_idempotent() {
     assert_local_branch_not_exists "branch stays pruned" "feature/idem-clean"
     assert_remote_branch_exists "remote branch still untouched" "feature/idem-clean"
     assert_remote_tracking_exists "tracking ref still exists" "feature/idem-clean"
-    assert_output_contains "second clean reports 0" "Pruned 0"
+    assert_output_contains "second clean reports 0" "No branches to prune"
     assert_head_unchanged "HEAD unchanged" "$head_before"
     assert_git_valid "repository intact"
     assert_no_commits_lost "no commits lost"
@@ -613,7 +613,7 @@ test_c16_nothing_to_prune() {
     run_gx clean --yes
 
     assert_exit_code "exits 0" 0
-    assert_output_contains "reports zero" "Pruned 0"
+    assert_output_contains "reports zero" "No branches to prune"
     assert_output_not_contains "no prompt" "[y/N]"
     assert_state_unchanged "state unchanged"
     assert_git_valid "repository intact"

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 
 	"github.com/fathss/gx/internal/ui"
 )
@@ -65,54 +64,17 @@ type Runner struct {
 	WarnFn    WarnFunc
 	SuccessFn SuccessFunc
 	InfoFn    InfoFunc
-	spinner   *ui.Spinner
-	mu        sync.Mutex
 }
 
 var _ Executor = (*Runner)(nil)
 
-// isInteractive reports whether interactive animations (like spinners) should be used.
-func (r *Runner) isInteractive() bool {
-	if r.Verbose {
-		return false
-	}
-	if os.Getenv("GX_INTERACTIVE") == "1" {
-		return true
-	}
-	return ui.IsTerminal(os.Stdout.Fd())
-}
-
-// State announces a new workflow state, printing the state message in dim text
-// and ensuring a single spinner is active below it.
+// State announces a new workflow state, printing the state message in dim text.
 func (r *Runner) State(msg string) {
-	if !r.isInteractive() {
-		fmt.Println(ui.Dim(msg))
-		return
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.spinner != nil {
-		r.spinner.Stop()
-		r.spinner = nil
-	}
-
 	fmt.Println(ui.Dim(msg))
-
-	r.spinner = ui.NewSpinner("", ui.WithTTY(true))
-	r.spinner.Start()
 }
 
-// StopSpinner stops and clears the current spinner if one is active.
-func (r *Runner) StopSpinner() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.spinner != nil {
-		r.spinner.Stop()
-		r.spinner = nil
-	}
-}
+// StopSpinner is a no-op kept for Executor interface compatibility.
+func (r *Runner) StopSpinner() {}
 
 // StartProgress begins a progress indicator with the given message.
 func (r *Runner) StartProgress(msg string) {
@@ -126,7 +88,6 @@ func (r *Runner) UpdateProgress(msg string) {
 
 // EndProgress terminates the current progress indicator with success or failure.
 func (r *Runner) EndProgress(success bool, msg, hint string) {
-	r.StopSpinner()
 	if success {
 		if msg != "" {
 			r.Success(msg)
@@ -145,7 +106,6 @@ func (r *Runner) Warn(msg string) {
 
 // Warnf emits a non-fatal warning with a hint.
 func (r *Runner) Warnf(msg, hint string) {
-	r.StopSpinner()
 	if r.WarnFn != nil {
 		r.WarnFn(msg, hint)
 	}
@@ -153,7 +113,6 @@ func (r *Runner) Warnf(msg, hint string) {
 
 // Success emits a non-fatal success notification via the configured handler.
 func (r *Runner) Success(msg string) {
-	r.StopSpinner()
 	if r.SuccessFn != nil {
 		r.SuccessFn(msg)
 	}
@@ -192,7 +151,6 @@ func newCommandError(args []string, err error, stderr string) error {
 
 func (r *Runner) runCommand(cmd *exec.Cmd, args []string) error {
 	if r.Verbose {
-		r.StopSpinner()
 		fmt.Println("▸ git", strings.Join(args, " "))
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
@@ -211,8 +169,6 @@ func (r *Runner) runCommand(cmd *exec.Cmd, args []string) error {
 	// When committing via an editor (no -m flag), git needs direct terminal I/O
 	isEditorCommit := len(args) > 0 && args[0] == "commit" && !hasFlag(args, "-m")
 	if isEditorCommit {
-		r.StopSpinner()
-		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		var stderrBuffer bytes.Buffer
 		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuffer)
@@ -228,7 +184,9 @@ func (r *Runner) runCommand(cmd *exec.Cmd, args []string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		r.StopSpinner()
+		if stderr := stderrBuffer.String(); stderr != "" {
+			fmt.Fprintln(os.Stderr, stderr)
+		}
 		return newCommandError(args, err, stderrBuffer.String())
 	}
 	return nil

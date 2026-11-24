@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.1 - 2026-11-24
+
+### Fixed
+
+- **Interactive Terminal Prompts & Authentication**:
+  - Replaced the asynchronous background spinner loop with clean, non-destructive state indicators, resolving an issue where Git credential prompts (GitHub username/password, SSH passphrases, GPG prompts) were erased by terminal clear codes (`\r\033[K`) and cursor hiding.
+  - Streamed captured Git stderr on subprocess failure so underlying authentication and remote errors (e.g., `fatal: Authentication failed for ...`) are immediately visible to the user above actionable hints.
+  - Removed specialized subprocess stopping logic across runner execution paths in favor of reliable terminal semantics.
+- **`gx clean` Output When No Candidates Exist**:
+  - Changed output message from `Pruned 0 branches.` to `No branches to prune.` when there are no candidate branches to delete.
+
 ## 0.4.0 - 2026-11-24
 
 ### Added
