@@ -530,7 +530,7 @@ func finishSync(run runner.Executor, cfg *config.Config, current string, noPush 
 	if err := pushFn(); err != nil {
 		hint := "Check the error above."
 		if git.IsNonFastForward(err) {
-			hint = "New commits were pushed to the remote while syncing. Run gx sync again to incorporate them, or inspect git log."
+			hint = "New commits were pushed to the remote while syncing. Run gx sync again, or inspect git log."
 		}
 		return &cli.Error{
 			Message: "Push rejected by remote.",
