@@ -146,7 +146,7 @@ test_07_workflow_clean_notification() {
 
     run_gx clean --yes
     assert_exit_code "gx clean exits 0" 0
-    assert_output_contains "clean shows Pruned" "Pruned 0 branches."
+    assert_output_contains "clean shows no branches to prune" "No branches to prune."
     assert_output_not_contains "no checkmark" "✓"
 }
 
