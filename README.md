@@ -193,7 +193,7 @@ gx clean
 | Command         | Description                                                          | Documentation                                      |
 | --------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
 | **`gx init`**   | Auto-detect remote/default branch and seed `.gx/config`              | [docs/commands/init.md](docs/commands/init.md)     |
-| **`gx sync`**   | Stash, fetch, sync with remote feature and base branch, and restore  | [docs/commands/sync.md](docs/commands/sync.md)     |
+| **`gx sync`**   | Stash, fetch, sync with remote feature/base branch, push, and restore | [docs/commands/sync.md](docs/commands/sync.md)     |
 | **`gx stage`**  | Stage changes with sensitive file guardrails and preview (`gx add`)  | [docs/commands/stage.md](docs/commands/stage.md)   |
 | **`gx save`**   | Preview changes, block sensitive files, and commit                   | [docs/commands/save.md](docs/commands/save.md)     |
 | **`gx ship`**   | Push branch with lease, enforce branch protection, and print PR link | [docs/commands/ship.md](docs/commands/ship.md)     |

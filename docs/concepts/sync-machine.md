@@ -88,8 +88,8 @@ This holds for a clean tree too: no stash is created, but the marker still makes
 
 After resolving conflicts and staging files (`git add <files>`):
 
-- `gx sync --continue`: Continues the in-progress rebase or merge (`GIT_EDITOR=true` suppresses message prompt). Once complete, automatically pops the preserved stash.
-- `gx sync --skip` (rebase only): Skips the current commit and continues rebasing.
+- `gx sync --continue`: Continues the in-progress rebase or merge (`GIT_EDITOR=true` suppresses message prompt). Once complete, automatically pops the preserved stash and pushes to remote (unless `--no-push`).
+- `gx sync --skip` (rebase only): Skips the current commit and continues rebasing, pushing to remote upon completion (unless `--no-push`).
 - `gx sync --abort`: Cancels the rebase (`git rebase --abort`) or merge (`git merge --abort`) and restores the working directory stash.
 
 ### 4. Non-Interference Policy (Q3 / Q5)

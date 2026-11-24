@@ -67,6 +67,7 @@ gx init --force --remote origin --branch main
 
 | Scenario                        | Behavior & Recovery                                                                                                                            |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Subdirectory invocation         | Creates `.gx/config` at the root of the enclosing Git repository rather than in the subdirectory.                                              |
 | Outside a Git repository        | Blocked by central guard: `Not inside a Git repository.`                                                                                       |
 | Existing configuration          | Refuses to overwrite unless `--force` is provided: `Configuration already exists. Edit .gx/config directly or use gx config to update values.` |
 | No remotes configured           | Auto-detection fails: `Failed to detect remote. Specify it explicitly: gx init <remote>`                                                       |
