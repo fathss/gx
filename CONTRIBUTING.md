@@ -52,22 +52,36 @@ cmd  →  internal/workflow  →  internal/git  →  internal/runner
 gx relies on integration test suites written in Bash simulating realistic Git repositories under `/tmp`:
 
 ```bash
-# Run all suites
+# Run all suites (parallel across CPU cores by default)
 make test
+# or
+bash tests/run-all.sh
+
+# Run with custom concurrency or serial mode
+bash tests/run-all.sh -j 2           # constrained concurrency (2 workers)
+bash tests/run-all.sh --serial       # sequential mode with live streaming output
 
 # Run a single suite
 bash tests/gx-sync-test.sh
+
+# Run a single targeted test within a suite (instant filter)
+bash tests/gx-sync-test.sh 05        # matches test function or label containing "05"
+TEST_FILTER=abort bash tests/gx-sync-test.sh
 ```
 
 When adding new flags or workflows, ensure:
+
 - Existing tests pass without regressions (`make test`).
 - New behaviors include tests covering success cases, edge cases, and safety invariants.
+- **Do NOT create Go test files (`*_test.go`)**: All testing in gx is strictly bash-based under `tests/`.
+- For new suites requiring Git repositories, use `copy_template "<name>" <setup_func>` from `tests/lib.sh` to benefit from in-memory golden template caching (`cp -a`).
 
 ---
 
 ## Documentation
 
 If your changes modify command behavior, arguments, flags, or configuration keys:
+
 - Update the relevant command guide in `docs/commands/<cmd>.md`.
 - Update architectural or domain references in `docs/internal/` or `docs/concepts/`.
 

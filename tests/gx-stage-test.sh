@@ -6,8 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-setup_stage_repo() {
-    setup_tempdir
+_setup_stage_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -28,6 +27,11 @@ setup_stage_repo() {
 
     write_config "develop" "origin" "rebase"
     echo ".gx/" >> "$TEST_DIR/.git/info/exclude"
+}
+
+setup_stage_repo() {
+    setup_tempdir
+    copy_template "stage" _setup_stage_repo_raw
 }
 
 # ======================================================================

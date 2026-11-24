@@ -12,18 +12,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GX_BIN="$REPO_ROOT/gx"
 
+# --- Test filter ---
+TEST_FILTER="${TEST_FILTER:-${1:-}}"
+
 # --- Counters ---
 PASS=0
 FAIL=0
 
 # --- Build ---
 build_gx() {
+    if [ -n "$GX_SKIP_BUILD" ] && [ -x "$GX_BIN" ]; then
+        return 0
+    fi
     cd "$REPO_ROOT/src" && go build -o "$GX_BIN" . >/dev/null
 }
 
+# --- Suite root for golden template caching and sandboxed test runs ---
+SUITE_ROOT="$(mktemp -d -t gx-suite-XXXXXX)"
+TESTS_STARTED=0
+trap cleanup_tempdir EXIT INT TERM
+
 # --- Temp dir ---
 setup_tempdir() {
-    TEST_ROOT=$(mktemp -d)
+    [ -n "$SUITE_ROOT" ] && [ -d "$SUITE_ROOT" ] || SUITE_ROOT="$(mktemp -d -t gx-suite-XXXXXX)"
+    rm -rf "$SUITE_ROOT"/test-* 2>/dev/null || true
+    TEST_ROOT=$(mktemp -d -p "$SUITE_ROOT" test-XXXXXX)
     TEST_DIR="$TEST_ROOT/repo"
     ORIGIN_DIR="$TEST_ROOT/origin"
     OTHER_DIR="$TEST_ROOT/other"
@@ -32,6 +45,9 @@ setup_tempdir() {
 
 cleanup_tempdir() {
     rm -rf "$TEST_ROOT" 2>/dev/null || true
+    if [ "${IN_TEST:-0}" -eq 0 ] && [ "${TESTS_STARTED:-0}" -eq 1 ]; then
+        rm -rf "$SUITE_ROOT" 2>/dev/null || true
+    fi
 }
 
 # --- Configure git identity ---
@@ -39,6 +55,10 @@ cleanup_tempdir() {
 configure_git() {
     git config user.name "GX Test"
     git config user.email "gx@test.local"
+    git config core.fsync none 2>/dev/null || true
+    git config core.compression 0 2>/dev/null || true
+    git config gc.auto 0 2>/dev/null || true
+    git config index.threads 1 2>/dev/null || true
 }
 
 # ======================================================================
@@ -55,11 +75,57 @@ git_fetch()    { git fetch "$@" >/dev/null 2>&1; }
 git_head()     { git rev-parse HEAD; }
 
 # ======================================================================
-# Repository setup
+# Repository setup & template caching
 # ======================================================================
-# Creates a bare origin, clones test repo, creates develop + feature/test
-# branches, pushes everything, and sets up OTHER_DIR for divergence.
-setup_base_repo() {
+
+# copy_template caches a setup function in $SUITE_ROOT and copies it via cp -a.
+# Avoids re-executing dozens of git init / clone / commit / push commands per test.
+copy_template() {
+    local tmpl_name="$1"
+    local setup_func="$2"
+    local tmpl_dir="$SUITE_ROOT/tmpl_$tmpl_name"
+
+    if [ ! -d "$tmpl_dir" ]; then
+        mkdir -p "$tmpl_dir"
+        local saved_test_root="$TEST_ROOT"
+        local saved_test_dir="$TEST_DIR"
+        local saved_origin_dir="$ORIGIN_DIR"
+        local saved_other_dir="$OTHER_DIR"
+        local saved_config_file="$CONFIG_FILE"
+
+        TEST_ROOT="$tmpl_dir"
+        TEST_DIR="$tmpl_dir/repo"
+        ORIGIN_DIR="$tmpl_dir/origin"
+        OTHER_DIR="$tmpl_dir/other"
+        CONFIG_FILE="$TEST_DIR/.gx/config"
+
+        "$setup_func"
+
+        TEST_ROOT="$saved_test_root"
+        TEST_DIR="$saved_test_dir"
+        ORIGIN_DIR="$saved_origin_dir"
+        OTHER_DIR="$saved_other_dir"
+        CONFIG_FILE="$saved_config_file"
+    fi
+
+    rm -rf "$ORIGIN_DIR" "$TEST_DIR" "$OTHER_DIR" 2>/dev/null || true
+    mkdir -p "$TEST_ROOT"
+    [ -d "$tmpl_dir/origin" ] && cp -a "$tmpl_dir/origin" "$ORIGIN_DIR"
+    [ -d "$tmpl_dir/repo" ]   && cp -a "$tmpl_dir/repo"   "$TEST_DIR"
+    [ -d "$tmpl_dir/other" ]  && cp -a "$tmpl_dir/other"  "$OTHER_DIR"
+
+    # Ensure local origin urls point to the test's ORIGIN_DIR
+    if [ -d "$TEST_DIR/.git" ] && [ -d "$ORIGIN_DIR" ]; then
+        git -C "$TEST_DIR" remote set-url origin "$ORIGIN_DIR" 2>/dev/null || true
+    fi
+    if [ -d "$OTHER_DIR/.git" ] && [ -d "$ORIGIN_DIR" ]; then
+        git -C "$OTHER_DIR" remote set-url origin "$ORIGIN_DIR" 2>/dev/null || true
+    fi
+
+    [ -d "$TEST_DIR" ] && cd "$TEST_DIR"
+}
+
+_setup_base_repo_impl() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -95,6 +161,12 @@ setup_base_repo() {
     # go back to test repo and write default config
     cd "$TEST_DIR"
     write_config "develop" "origin" "rebase"
+}
+
+# Creates a bare origin, clones test repo, creates develop + feature/test
+# branches, pushes everything, and sets up OTHER_DIR for divergence.
+setup_base_repo() {
+    copy_template "base" _setup_base_repo_impl
 }
 
 # ======================================================================
@@ -325,11 +397,18 @@ TEST_PASS=0
 TEST_FAIL=0
 
 run_test() {
+    TESTS_STARTED=1
     local test_func="$1"
     local test_label="$2"
 
+    if [ -n "$TEST_FILTER" ]; then
+        if [[ "$test_func" != *"$TEST_FILTER"* ]] && [[ "$test_label" != *"$TEST_FILTER"* ]]; then
+            return 0
+        fi
+    fi
+
     local output rc
-    output=$("$test_func" 2>&1)
+    output=$(IN_TEST=1 "$test_func" 2>&1)
     rc=$?
 
     echo "$output"
@@ -346,7 +425,12 @@ run_test() {
 }
 
 print_test_summary() {
+    TESTS_STARTED=1
     echo "============================================"
-    echo "  Tests: $TEST_PASS passed, $TEST_FAIL failed"
+    if [ -n "$TEST_FILTER" ]; then
+        echo "  Tests (filter '$TEST_FILTER'): $TEST_PASS passed, $TEST_FAIL failed"
+    else
+        echo "  Tests: $TEST_PASS passed, $TEST_FAIL failed"
+    fi
     echo "============================================"
 }

@@ -14,8 +14,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 # setup_save_repo creates a basic repo with develop branch and a feature branch
 # with a modified tracked file. Optionally accepts extra files to create.
-setup_save_repo() {
-    setup_tempdir
+_setup_save_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -38,6 +37,11 @@ setup_save_repo() {
 
     # Exclude .gx/ from untracked listing so it doesn't interfere with tests
     echo ".gx/" >> "$TEST_DIR/.git/info/exclude"
+}
+
+setup_save_repo() {
+    setup_tempdir
+    copy_template "save" _setup_save_repo_raw
 }
 
 # ======================================================================

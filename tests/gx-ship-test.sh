@@ -10,8 +10,7 @@ source "$SCRIPT_DIR/lib.sh"
 # ======================================================================
 # Common setup — creates origin + test repo with develop and feature/test
 # ======================================================================
-setup_ship_repo() {
-    setup_tempdir
+_setup_ship_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -47,6 +46,11 @@ setup_ship_repo() {
     cd "$TEST_DIR"
     write_config "develop" "origin" "rebase"
     echo ".gx/" >> "$TEST_DIR/.git/info/exclude"
+}
+
+setup_ship_repo() {
+    setup_tempdir
+    copy_template "ship" _setup_ship_repo_raw
 }
 
 # ======================================================================
@@ -343,7 +347,9 @@ test_13_pr_url_forge() {
 # ======================================================================
 # Run all tests
 # ======================================================================
+cleanup_tempdir
 build_gx
+trap cleanup_tempdir EXIT
 
 run_test test_01_first_push "Test 01: first push — no upstream"
 run_test test_02_subsequent_push "Test 02: subsequent push — fast-forward"
@@ -360,4 +366,5 @@ run_test test_12_behind_only "Test 12: behind-only blocked"
 run_test test_13_pr_url_forge "Test 13: PR URL formatting with detected forge"
 
 print_test_summary
+cleanup_tempdir
 [ "$TEST_FAIL" -eq 0 ]

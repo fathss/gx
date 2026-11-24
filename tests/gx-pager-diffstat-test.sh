@@ -108,6 +108,10 @@ test_03_no_pager_flag() {
 # ======================================================================
 # Runner
 # ======================================================================
+cleanup_tempdir
+build_gx
+trap cleanup_tempdir EXIT
+
 echo "============================================"
 echo "  gx pager & diffstat — test suite"
 echo "============================================"
@@ -117,8 +121,7 @@ run_test test_02_save_diffstat "Test 02: save preview shows diff stats"
 run_test test_03_no_pager_flag "Test 03: --no-pager flag works"
 
 echo ""
-echo "============================================"
-echo "  Tests: $TEST_PASS passed, $TEST_FAIL failed"
-echo "============================================"
+print_test_summary
+cleanup_tempdir
 
 [ "$TEST_FAIL" -eq 0 ]

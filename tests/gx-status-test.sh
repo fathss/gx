@@ -10,8 +10,7 @@ source "$SCRIPT_DIR/lib.sh"
 # Helpers
 # ======================================================================
 
-setup_status_repo() {
-    setup_tempdir
+_setup_status_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -31,6 +30,11 @@ setup_status_repo() {
 
     write_config "develop" "origin" "rebase"
     echo ".gx/" >> "$TEST_DIR/.git/info/exclude"
+}
+
+setup_status_repo() {
+    setup_tempdir
+    copy_template "status" _setup_status_repo_raw
 }
 
 # ======================================================================

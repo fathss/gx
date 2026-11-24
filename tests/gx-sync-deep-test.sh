@@ -50,9 +50,7 @@ source "$SCRIPT_DIR/lib-invariants.sh"
 
 # Bare origin + clone with develop initialized; OTHER_DIR is a collaborator
 # clone used to advance develop.
-setup_sync_repo() {
-    cleanup_tempdir
-    setup_tempdir
+_setup_sync_repo_raw() {
     mkdir -p "$ORIGIN_DIR"
     cd "$ORIGIN_DIR"
     git init --bare 2>/dev/null
@@ -79,6 +77,12 @@ setup_sync_repo() {
     configure_git
     git checkout -q -B develop origin/develop
     cd "$TEST_DIR"
+}
+
+setup_sync_repo() {
+    cleanup_tempdir
+    setup_tempdir
+    copy_template "sync_deep" _setup_sync_repo_raw
 }
 
 # create_feature <branch> [extra commit message...]
